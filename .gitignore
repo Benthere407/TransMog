@@ -1,0 +1,5 @@
+# Each player's own look, kept beside the addon: personal, not part of the addon
+characters/
+
+__pycache__/
+*.zip

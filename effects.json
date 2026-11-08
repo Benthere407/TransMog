@@ -1,0 +1,106 @@
+{
+ "wings": [
+  {
+   "name": "Gyve Doublet",
+   "item": 25708
+  },
+  {
+   "name": "Tartarus Platemail",
+   "item": 26944
+  }
+ ],
+ "glows": [
+  {
+   "name": "Varga Purnikawa",
+   "model": 474
+  },
+  {
+   "name": "Karambit",
+   "model": 478
+  },
+  {
+   "name": "Aphelion Knuckles",
+   "model": 483
+  },
+  {
+   "name": "Kenkonken",
+   "model": 495
+  },
+  {
+   "name": "Sagasinger",
+   "model": 528
+  },
+  {
+   "name": "Coruscanti",
+   "model": 536
+  },
+  {
+   "name": "Murasamemaru",
+   "model": 537
+  },
+  {
+   "name": "Ephemeron",
+   "model": 538
+  },
+  {
+   "name": "Maestro's Baton",
+   "model": 539
+  },
+  {
+   "name": "Asteria",
+   "model": 541
+  },
+  {
+   "name": "Borealis",
+   "model": 543
+  },
+  {
+   "name": "Ikarigiri",
+   "model": 589
+  },
+  {
+   "name": "Delphinius",
+   "model": 590
+  },
+  {
+   "name": "Tonatiuh Axe",
+   "model": 591
+  },
+  {
+   "name": "Shell Scepter",
+   "model": 592
+  },
+  {
+   "name": "Gobbie Gavel",
+   "model": 593
+  },
+  {
+   "name": "Dhyana Rod",
+   "model": 595
+  },
+  {
+   "name": "Wroth Scythe",
+   "model": 596
+  },
+  {
+   "name": "Tenkomaru",
+   "model": 602
+  },
+  {
+   "name": "Huskarl Axe",
+   "model": 603
+  },
+  {
+   "name": "Escritorio",
+   "model": 704
+  },
+  {
+   "name": "Fermion Sword",
+   "model": 756
+  },
+  {
+   "name": "Irradiance Blade",
+   "model": 776
+  }
+ ]
+}
