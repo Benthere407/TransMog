@@ -17,7 +17,7 @@ In game:
 
 addon.name    = 'TransMog';
 addon.author  = 'Benthere';
-addon.version = '2.0.1';
+addon.version = '2.0.2';
 addon.desc    = 'Turns DAT mods for mounts, gear and weapons on and off.';
 
 require('common');
@@ -488,7 +488,10 @@ end;
 -- the Colors page: the slot being edited, and its colors as 0 to 1 floats for the pickers
 local COLOR_SLOTS = { 'head', 'body', 'hands', 'legs', 'feet', 'main', 'sub', 'range' };
 local tint = { slot = 'body', key = nil, edit = nil, unsaved = false, live = { true }, name = { '' }, tried = {},
-               open = {} };    -- open: color name -> { true } while its picker panel is open
+               open = {},      -- open: color name -> { true } while its picker panel is open
+               clip = nil,     -- the color last copied, { r, g, b } in 0 to 1
+               ref = nil,      -- the slot whose colors show beside each color, to match them
+               drafts = {} };  -- piece key -> colors changed but not saved, kept while you edit another slot
 
 local function to_floats(palette)
     local out = {};
@@ -513,6 +516,35 @@ local function slot_label(key)
         if slot.key == key then return slot.label; end
     end
     return key;
+end
+
+-- a color as #RRGGBB, and back: what Copy puts on the clipboard and Paste reads, so a color from anywhere pastes
+local function to_hex(c)
+    return ('#%02X%02X%02X'):format(math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5), math.floor(c[3] * 255 + 0.5));
+end
+
+local function from_hex(text)
+    local r, g, b = tostring(text or ''):match('^%s*#?(%x%x)(%x%x)(%x%x)%s*$');
+    if not r then return nil; end
+    return { tonumber(r, 16) / 255, tonumber(g, 16) / 255, tonumber(b, 16) / 255 };
+end
+
+local function copy_color(c)
+    tint.clip = { c[1], c[2], c[3] };
+    pcall(imgui.SetClipboardText, to_hex(c));
+end
+
+local function pasted_color()
+    local ok, text = pcall(imgui.GetClipboardText);
+    return ok and from_hex(text) or tint.clip;
+end
+
+-- the colors of the piece in another slot, as the Colors page would show them: unsaved changes too. And its name.
+local function slot_colors(key)
+    local target = core.color_target(key);
+    if not target then return nil; end
+    return tint.drafts[target.mod.folder .. '|' .. target.rel] or to_floats(core.saved_colors(target.mod, target.rel)),
+           target.name;
 end
 
 PAGES.colors = function ()
@@ -543,10 +575,12 @@ PAGES.colors = function ()
     end
     local key = target.mod.folder .. '|' .. target.rel;
     if tint.key ~= key then
+        if tint.key and tint.unsaved then tint.drafts[tint.key] = tint.edit; end    -- kept to come back to, and to match
         tint.key = key;
         tint.open = {};    -- another piece: its panels start closed
-        tint.edit = to_floats(core.saved_colors(target.mod, target.rel));
-        tint.unsaved = false;
+        tint.edit = tint.drafts[key] or to_floats(core.saved_colors(target.mod, target.rel));
+        tint.unsaved = tint.drafts[key] ~= nil;
+        tint.drafts[key] = nil;
         tint.name[1] = core.next_color_name(target.mod, target.rel, target.name);
         local built = core.default_colors(target.mod, target.rel);
         tint.scheme = { main = to_floats({ main = built.main }).main, second = to_floats({ main = built.dark }).main };
@@ -558,15 +592,41 @@ PAGES.colors = function ()
     local defaults = core.default_colors(target.mod, target.rel);    -- the game's own colors
     local saved = core.saved_colors(target.mod, target.rel);         -- the ones last saved, or the game's
     local SWATCH_W, RESET_W, GAP = 140, 64, 6;
-    -- a color's row: its swatch opens its panel, Default and Saved put it back. Returns 'default', 'saved' or nil.
-    local function color_row(id, label, color)
-        vc.label_row(label, SWATCH_W + RESET_W * 2 + GAP * 2);
+    -- the reference: another slot's colors in a column after the labels, each with a button that copies it over
+    local REF_X, REF_W, USE_W = 150, 80, 48;
+    if tint.ref == tint.slot then tint.ref = nil; end
+    local ref_colors, ref_name = nil, nil;
+    if tint.ref then ref_colors, ref_name = slot_colors(tint.ref); end
+    local ref_label = tint.ref and ('%s (%s)'):format(slot_label(tint.ref), ref_name or 'nothing to show');
+    -- a color's row: with a reference, its color and a Copy button that puts it here; then this piece's color (its
+    -- swatch opens its panel, right-click copies it), and Default and Saved to put it back.
+    -- Returns 'default', 'saved', 'ref' or nil.
+    local function color_row(id, label, color, ref)
+        local x0, aw = imgui.GetCursorPosX(), vc.avail_w();
+        pcall(imgui.AlignTextToFramePadding);
+        imgui.Text(label);
+        local pick;
+        if tint.ref and ref then
+            imgui.SameLine(x0 + vc.z(REF_X));
+            if imgui.ColorButton('##tint_ref_' .. id, { ref[1], ref[2], ref[3], 1 }, 0, { vc.z(REF_W), vc.z(22) }) then
+                pick = 'ref';
+            end
+            if imgui.IsItemClicked(1) then copy_color(ref); end
+            if imgui.IsItemHovered() then
+                imgui.SetTooltip(('%s: %s\nClick or Copy: use it here\nRight-click: copy it'):format(ref_label, to_hex(ref)));
+            end
+            imgui.SameLine(0, vc.z(GAP));
+            if vc.button('Copy##tint_use_' .. id, nil, USE_W) then pick = 'ref'; end
+            if imgui.IsItemHovered() then imgui.SetTooltip(('Puts %s here'):format(to_hex(ref))); end
+        end
+        local cw = SWATCH_W + RESET_W * 2 + GAP * 2;
+        imgui.SameLine(x0 + math.max(vc.z(REF_X + REF_W + USE_W + GAP * 3), aw - vc.z(cw)));
         if imgui.ColorButton('##tint_' .. id, { color[1], color[2], color[3], 1 }, 0, { vc.z(SWATCH_W), vc.z(22) }) then
             tint.open[id] = tint.open[id] or { false };
             tint.open[id][1] = not tint.open[id][1];
         end
-        if imgui.IsItemHovered() then imgui.SetTooltip('Open its color panel'); end
-        local pick;
+        if imgui.IsItemClicked(1) then copy_color(color); end
+        if imgui.IsItemHovered() then imgui.SetTooltip(to_hex(color) .. '\nClick: open its color panel\nRight-click: copy it'); end
         imgui.SameLine(0, vc.z(GAP));
         if vc.button('Default##tint_def_' .. id, nil, RESET_W) then pick = 'default'; end
         if imgui.IsItemHovered() then imgui.SetTooltip("Back to the game's own color"); end
@@ -576,14 +636,43 @@ PAGES.colors = function ()
         return pick;
     end
 
+    -- the slot to match, for both sections below: its colors show beside these
+    do
+        local x0 = imgui.GetCursorPosX();
+        pcall(imgui.AlignTextToFramePadding);
+        imgui.Text('Match colors from');
+        imgui.SameLine(x0 + vc.z(REF_X));
+        imgui.SetNextItemWidth(vc.z(COMBO_W));
+        if imgui.BeginCombo('##tint_ref', tint.ref and ref_label or 'None') then
+            if imgui.Selectable('None##tint_ref', tint.ref == nil) then tint.ref = nil; end
+            for _, slot in ipairs(COLOR_SLOTS) do
+                if slot ~= tint.slot then
+                    local list, name = slot_colors(slot);
+                    if list and imgui.Selectable(('%s (%s)##tint_ref'):format(slot_label(slot), name), tint.ref == slot) then
+                        tint.ref = slot;
+                    end
+                end
+            end
+            imgui.EndCombo();
+        end
+        if imgui.IsItemHovered() then imgui.SetTooltip("Shows another slot's colors beside these, to copy them over"); end
+    end
+    imgui.SameLine(0, vc.z(GAP));
+    local use_all = vc.button('Use all##tint_ref_all', ref_colors and 'primary' or nil, 76) and ref_colors ~= nil;
+    if imgui.IsItemHovered() then imgui.SetTooltip("Copies every color of the slot you match from onto this piece"); end
+
     vc.section('QUICK SCHEME', 'all colors from two');
     local scheme_changed = false;
     local SCHEME = { { 'main', 'Main', 'main' }, { 'second', 'Dark and gray parts', 'dark' } };
     for _, part in ipairs(SCHEME) do
-        local pick = color_row('scheme_' .. part[1], part[2], tint.scheme[part[1]]);
-        local from = pick and (pick == 'default' and defaults or saved)[part[3]];
+        local ref = ref_colors and ref_colors[part[3]];
+        local pick = color_row('scheme_' .. part[1], part[2], tint.scheme[part[1]], ref);
+        local from = pick and pick ~= 'ref' and (pick == 'default' and defaults or saved)[part[3]];
         if from then
             tint.scheme[part[1]] = to_floats({ main = from }).main;
+            scheme_changed, finished = true, true;
+        elseif pick == 'ref' and ref then
+            tint.scheme[part[1]] = { ref[1], ref[2], ref[3] };
             scheme_changed, finished = true, true;
         end
     end
@@ -592,10 +681,14 @@ PAGES.colors = function ()
     local labels = core.color_labels(target.mod, target.rel);
     for _, name in ipairs(core.COLOR_NAMES) do
         if tint.edit[name] then
-            local pick = color_row(name, labels[name] or name, tint.edit[name]);
-            local from = pick and (pick == 'default' and defaults or saved)[name];
+            local ref = ref_colors and ref_colors[name];
+            local pick = color_row(name, labels[name] or name, tint.edit[name], ref);
+            local from = pick and pick ~= 'ref' and (pick == 'default' and defaults or saved)[name];
             if from then
                 tint.edit[name] = to_floats({ [name] = from })[name];
+                tint.unsaved, finished = true, true;
+            elseif (pick == 'ref' or use_all) and ref then
+                tint.edit[name] = { ref[1], ref[2], ref[3] };
                 tint.unsaved, finished = true, true;
             end
         end
@@ -619,6 +712,19 @@ PAGES.colors = function ()
                     if panel.scheme then scheme_changed = true; else tint.unsaved = true; end
                 end
                 if imgui.IsItemDeactivatedAfterEdit() then finished = true; end
+                if vc.button('Copy##tint_copy_' .. panel.id, nil, 76) then copy_color(panel.color); end
+                if imgui.IsItemHovered() then imgui.SetTooltip('Copies ' .. to_hex(panel.color) .. ', to paste in another color'); end
+                imgui.SameLine();
+                local paste = pasted_color();
+                if vc.button('Paste##tint_paste_' .. panel.id, paste and 'primary' or nil, 76) and paste then
+                    panel.color[1], panel.color[2], panel.color[3] = paste[1], paste[2], paste[3];
+                    if panel.scheme then scheme_changed = true; else tint.unsaved = true; end
+                    finished = true;
+                end
+                if imgui.IsItemHovered() then
+                    imgui.SetTooltip(paste and ('Puts %s here'):format(to_hex(paste)) or 'Copy a color first');
+                end
+                imgui.SameLine();
                 if vc.button('Close##tint_close_' .. panel.id, nil, 76) then open[1] = false; end
             end
             imgui.End();

@@ -66,6 +66,20 @@ Open **Colors** and click the slot to recolor (Body here). It recolors whatever 
 
 To keep the colors, type a name and choose **Save**. Saved colors stay through relogging.
 
+**Matching another piece:** say you recolored your body and want your hands to match.
+
+1. Click **Hands**.
+2. Set **Match colors from** to **Body**. Each row, in Quick scheme and in Each color, then shows the body's color on
+   the left, with a **Copy** button that puts it on the hands' color next to it.
+3. Choose **Use all** to copy every color at once.
+
+Changes you haven't saved yet count too, and they're still there when you go back to the body.
+
+**Copying one color:**
+- Right-click any color to copy it, or choose **Copy** in its panel.
+- Then choose **Paste** in another color's panel.
+- Copy puts the color on the clipboard as `#RRGGBB`, so Paste also takes a color code you copied from anywhere else.
+
 ![Colors page with a crimson main color and gold trim, and the character in a red robe](docs/colors-crimson.png)
 
 To wear colors you saved before, pick them under **Saved colors** and choose **Wear**. Here the same robe wears a
