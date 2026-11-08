@@ -87,9 +87,9 @@ staff decide a tier, so ask in a GM ticket if you're unsure.
   Your looks, sets and colors are kept.
 - **Gear made for one race** (like the White and gold robe, made for Elvaan male) only shows on that race. On another
   race the slot shows your gear instead, so nothing goes invisible.
-- **A two-handed weapon empties the sub hand.** With a great sword, polearm, staff, scythe, great axe, great katana
-  or hand-to-hand showing in the main hand, the sub slot shows nothing, as with real gear. The game would otherwise
-  draw the weapon low, on the ground.
+- **A two-handed weapon empties the sub hand.** With a great sword, polearm, staff, scythe, great axe or great katana
+  showing in the main hand, the sub slot shows nothing, as with real gear. The game would otherwise draw the weapon
+  low, on the ground. Hand-to-hand shows on both hands: the sub slot shows its other hand.
 - **Recolored pieces are private copies.** The first time you recolor a normal piece, TransMog copies it to a model
   number no item uses, so only your character changes, not everyone wearing that piece.
 - **Effects on a normal piece** show on anyone you see wearing that piece.

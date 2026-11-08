@@ -670,20 +670,26 @@ lock_now = function ()
     for key, look in pairs(config.data.real) do config.data.locked[key] = look end
 end
 
--- the models of two-handed weapons (and hand-to-hand): real gear never has anything in the sub slot with one
--- but a grip, which draws nothing, and the game draws one held beside a sub weapon low, on the ground
-local TWO_HANDED_SKILLS = { [1] = true, [4] = true, [6] = true, [7] = true, [8] = true, [10] = true, [12] = true }
-local two_handed_models
-local function two_handed(model)
-    if not two_handed_models then
-        two_handed_models = {}
+-- Two-handed weapons: real gear never has anything in the sub slot with one but a grip, which draws nothing, and the
+-- game draws one held beside a sub weapon low, on the ground. Hand-to-hand is drawn on both hands: the server puts its
+-- off hand in the sub slot, as the main's model in the ranged slot's numbers (0x8000 and up), and the game puts it back
+-- at every gear change, so taking it out would redraw you (a blink) each time.
+local TWO_HANDED_SKILLS = { [4] = true, [6] = true, [7] = true, [8] = true, [10] = true, [12] = true }
+local HAND_TO_HAND = 1
+local OFF_HAND = 0x8000    -- a hand-to-hand weapon's off hand, in the sub slot
+local SUB_EMPTY = 0x7000
+local main_skills
+local function main_skill(model)
+    if not main_skills then
+        main_skills = {}
         for _, row in pairs(vana.gamedata.all('items')) do
-            if TWO_HANDED_SKILLS[row.skill or 0] and (row.model_id or 0) > 0 then
-                two_handed_models[row.model_id] = true
+            local skill = row.skill or 0
+            if (TWO_HANDED_SKILLS[skill] or skill == HAND_TO_HAND) and (row.model_id or 0) > 0 then
+                main_skills[row.model_id] = skill
             end
         end
     end
-    return two_handed_models[model] == true
+    return model and main_skills[model]
 end
 
 -- the model the main hand shows, before any private copy of it
@@ -697,11 +703,28 @@ local function shown_main()
     return real and real % 0x1000 or nil
 end
 
+-- what the sub slot must show whatever is picked for it, by the main hand: the off hand of a hand-to-hand weapon, or
+-- nothing beside a two-handed one; nil when the main hand leaves it free
+local function sub_by_main()
+    local main = shown_main()
+    local skill = main_skill(main)
+    if skill == HAND_TO_HAND then return OFF_HAND + main end
+    if skill then return SUB_EMPTY end
+end
+
+-- the sub slot's look from a real one (the server's, or the locked): the off hand of real hand-to-hand gear, with
+-- another weapon shown in the main hand, shows nothing
+local function sub_from_real(real)
+    if real and real >= OFF_HAND then return SUB_EMPTY end
+end
+
 local function wanted(i, slot)
-    if slot.key == 'sub' and two_handed(shown_main()) then return slot.prefix end
+    local forced = slot.key == 'sub' and sub_by_main()
+    if forced then return forced end
     local model = config.data.lock and picked_model(slot)
     if model then return model end
     local real = locked_look(slot.key) or config.data.real[slot.key]    -- your gear shows your private copy of it too
+    if slot.key == 'sub' and sub_from_real(real) then return sub_from_real(real) end
     return real and (real - real % 0x1000 + private_model(slot.key, real % 0x1000)) or nil
 end
 
@@ -770,12 +793,14 @@ local function rewrite(data, offset)
     put(offset - 2, config.data.face)
     put(offset - 1, config.data.race)
     for i, slot in ipairs(core.SLOTS) do
-        local model = config.data.lock and picked_model(slot)
+        -- the same look sync() draws, so a gear change from the server never needs a redraw after it (a blink)
+        local model = slot.key == 'sub' and sub_by_main() or config.data.lock and picked_model(slot)
         if not model then    -- the server's look (or the locked one), with your private copies in it
             local at = offset + (i - 1) * 2
             local real = locked_look(slot.key) or (data:byte(at + 1) + data:byte(at + 2) * 256)
             local own = private_model(slot.key, real % 0x1000)
-            model = (own ~= real % 0x1000 or locked_look(slot.key)) and (real - real % 0x1000 + own) or nil
+            model = slot.key == 'sub' and sub_from_real(real)
+                or (own ~= real % 0x1000 or locked_look(slot.key)) and (real - real % 0x1000 + own) or nil
         end
         if model then
             local at = offset + (i - 1) * 2
