@@ -1102,6 +1102,53 @@ function core.redraw()
     return true
 end
 
+-- a weapon's kind for the Choose list: its type, and for the main and sub hands whether it takes one hand or two
+-- (hand-to-hand is on both hands); nil for armor
+local SKILL_NAMES = { [1] = 'Hand-to-hand', [2] = 'Dagger', [3] = 'Sword', [4] = 'Great sword', [5] = 'Axe',
+                      [6] = 'Great axe', [7] = 'Scythe', [8] = 'Polearm', [9] = 'Katana', [10] = 'Great katana',
+                      [11] = 'Club', [12] = 'Staff', [25] = 'Archery', [26] = 'Marksmanship', [27] = 'Throwing',
+                      [41] = 'Stringed', [42] = 'Wind', [45] = 'Handbell' }
+local function weapon_kind(row, key)
+    if key ~= 'main' and key ~= 'sub' and key ~= 'range' then return nil end
+    local skill = row.skill or 0
+    local name = SKILL_NAMES[skill]
+    if not name then
+        if (row.shield_size or 0) > 0 then return 'Shield' end
+        return nil
+    end
+    if key == 'range' then return name end
+    if skill == HAND_TO_HAND then return name .. ', both hands' end
+    return name .. (TWO_HANDED_SKILLS[skill] and ', 2H' or ', 1H')
+end
+
+-- the kind of the piece with this id, for the Choose list
+function core.weapon_kind(key, id)
+    local row = id and vana.gamedata.items[id]
+    return row and weapon_kind(row, key) or nil
+end
+
+-- Whether a weapon's own file has an effect built in (a glow, an aura, a blade drawn by its effect): relic, mythic
+-- and empyrean weapons come as several looks of one name, some with it and some without. Read on demand, a few files a
+-- frame, and kept: nil while not read yet.
+local GLOW_READS_PER_FRAME = 4
+local glow_known, glow_reads, glow_frame = {}, 0, nil
+local armor_file_of    -- armor_file, set further down
+function core.has_glow(key, model)
+    if key ~= 'main' and key ~= 'sub' and key ~= 'range' then return false end
+    local k = key .. ':' .. tostring(model)
+    if glow_known[k] ~= nil then return glow_known[k] end
+    local now = vana.time.clock()
+    if now ~= glow_frame then glow_frame, glow_reads = now, 0 end    -- a new frame: a new share of reads
+    if glow_reads >= GLOW_READS_PER_FRAME or not armor_file_of then return nil end
+    glow_reads = glow_reads + 1
+    local file = armor_file_of(key, model)
+    local rel = file and file_path(file)
+    local path = rel and served(rel)
+    local data = path and read_file(path)
+    glow_known[k] = data ~= nil and colors.effects_of(data) ~= ''
+    return glow_known[k]
+end
+
 local function build_list(key)
     local list = {}
     local entity = find_self()
@@ -1115,7 +1162,7 @@ local function build_list(key)
         end
         if fits and (row.model_id or 0) > 0 and bit.band(row.races or 0, race_mask) ~= 0 then
             list[#list + 1] = { id = id, name = row.name, lower = row.name:lower(), main_only = not own_slot,
-                                  model = row.model_id }
+                                  model = row.model_id, kind = weapon_kind(row, key) }
         end
     end
     table.sort(list, function (a, b) return a.lower < b.lower end)
@@ -1148,28 +1195,53 @@ local function build_looks(key)
     for i, group in ipairs(looks) do
         table.sort(group, better_name)
         looks[i] = { id = group[1].id, name = group[1].name, lower = group[1].lower,
-                     main_only = group[1].main_only, pieces = group }
+                     main_only = group[1].main_only, kind = group[1].kind, model = group[1].model, pieces = group }
     end
     table.sort(looks, function (a, b) return a.lower < b.lower end)
     return looks
 end
 
--- the looks for a slot with a name holding text. A look found by a name it hides shows that name.
--- The second value is how many there are in all.
-function core.items_for(key, text)
+-- the weapon types a slot's looks have, in the game's skill order, for the Choose list's filter
+local TYPE_ORDER = { 'Hand-to-hand', 'Dagger', 'Sword', 'Great sword', 'Axe', 'Great axe', 'Scythe', 'Polearm', 'Katana',
+                     'Great katana', 'Club', 'Staff', 'Shield', 'Archery', 'Marksmanship', 'Throwing', 'Stringed', 'Wind',
+                     'Handbell' }
+function core.weapon_types(key)
+    look_lists[key] = look_lists[key] or build_looks(key)
+    local have = {}
+    for _, look in ipairs(look_lists[key] or {}) do
+        local kind = look.kind and look.kind:match('^[^,]+')
+        if kind then have[kind] = true end
+    end
+    local list = {}
+    for _, name in ipairs(TYPE_ORDER) do
+        if have[name] then list[#list + 1] = name end
+    end
+    return list
+end
+
+-- the looks for a slot with a name holding text, and of a weapon type or with a glow when type_filter says (nil for
+-- all). A look found by a name it hides shows that name. The second value is how many there are in all.
+function core.items_for(key, text, type_filter)
     look_lists[key] = look_lists[key] or build_looks(key)
     local found, total = {}, 0
     text = text:lower()
     local entity = find_self()
+    -- of a weapon type ('Sword'), or with a glow built in ('glow'); a mod's own looks have no type
+    local function of_type(look)
+        if not type_filter then return true end
+        if type_filter == 'glow' then return core.has_glow(key, look.model) == true end
+        return (look.kind or ''):match('^[^,]+') == type_filter
+    end
     for _, look in pairs(core.looks) do
-        if look.key == key and entity and look.race == entity.race and look.lower:find(text, 1, true) then
+        if not type_filter and look.key == key and entity and look.race == entity.race and look.lower:find(text, 1, true) then
             total = total + 1
             found[total] = look
         end
     end
     for _, look in ipairs(look_lists[key] or {}) do
-        local shown =(text == '' or look.lower:find(text, 1, true)) and look or nil
-        if not shown then
+        local wanted_type = of_type(look)
+        local shown = wanted_type and (text == '' or look.lower:find(text, 1, true)) and look or nil
+        if not shown and wanted_type then
             for _, piece in ipairs(look.pieces) do
                 if piece.lower:find(text, 1, true) then
                     shown = piece
@@ -1200,6 +1272,7 @@ local function armor_file(key, model)
         model = model - count
     end
 end
+armor_file_of = armor_file
 
 -- Private copies: a recolored normal piece is a copy only your character wears, so nobody else wearing that piece
 -- changes on your screen. About 3,400 model numbers per slot point at file numbers with no file in the game's or the
@@ -1289,6 +1362,9 @@ end
 local SPARES = 40    -- enough for several race or gear changes between zones: a race change can need a new copy for
                      -- every recolored slot, and each slot with an effect gets a new copy at a gear change
 
+-- the game's file tables in memory, once found: { vt, ft }; false when a search found nothing (tried again at a zone)
+local live
+
 -- private paths whose file was made since the last zone
 local function unseen()
     config.data.unseen = config.data.unseen or {}
@@ -1340,6 +1416,7 @@ local function zoned()
     config.data.unseen = {}
     make_spares()
     config:save()
+    if live == false then live = nil end    -- the game's tables weren't found: look again (core.check_private)
 end
 
 -- the piece's own file for a private copy's file, else the file itself
@@ -1375,8 +1452,7 @@ local function claim(key)
     return nil, 'There is no free model number left for this slot.'
 end
 
--- the game's own tables in memory, found once: each sits at the start of a 64 KB block, the FTABLE after the VTABLE
-local live
+-- the game's own tables in memory, found once (live, set further up): each sits at the start of a 64 KB block
 local function hex(text)
     return (text:gsub('.', function (c) return ('%02X '):format(c:byte()) end))
 end
@@ -1401,6 +1477,50 @@ local function probe_at(data, from, width)
     end
 end
 
+-- Whether a table at this address is the game's: a few hundred entries for files the game has, spread over the whole
+-- table, must all but agree. A probe alone can match a stale copy of the table data left in memory (a buffer the game
+-- read the file into, since reused), and our copies written there would never reach the game. which: 'vt' or 'ft'.
+local VERIFY_SAMPLES = 512
+local function verified(which, at)
+    local base = tables()
+    local ours = {}
+    for _, entry in pairs(privates()) do ours[entry.fid] = true end
+    local filled = {}
+    for id = 0, #base.vt - 1, 13 do
+        if base.vt:byte(id + 1) ~= 0 and not ours[id] then filled[#filled + 1] = id end
+    end
+    if #filled == 0 then return false end
+    local step = math.max(1, math.floor(#filled / VERIFY_SAMPLES))
+    local checked, same = 0, 0
+    for i = 1, #filled, step do
+        local id = filled[i]
+        local ok, got = pcall(function ()
+            if which == 'vt' then return vana.memory.read_uint8(at + id) end
+            return vana.memory.read_uint16(at + id * 2)
+        end)
+        local want = which == 'vt' and base.vt:byte(id + 1)
+            or base.ft:byte(id * 2 + 1) + base.ft:byte(id * 2 + 2) * 256
+        checked = checked + 1
+        if ok and got == want then same = same + 1 end
+    end
+    return same >= checked * 0.98
+end
+
+-- the start of the game's copy of one table: a 64 KB block where the probes match and the table checks out. The
+-- game's two tables needn't be near each other (one session has them 33 MB apart), so each is found on its own.
+local function find_table(which, last, probes)
+    local function fits(at)
+        for _, probe in ipairs(probes) do
+            if vana.memory.find(at + probe.at, TABLES_PROBE, probe.hex) == 0 then return false end
+        end
+        return verified(which, at)
+    end
+    if last and fits(last) then return last end    -- where it was last time: the game keeps it there until it restarts
+    for block = 0x10000, 0x7FFF0000, 0x10000 do
+        if fits(block) then return block end
+    end
+end
+
 local function find_live()
     if live ~= nil then return live or nil end
     live = false
@@ -1408,33 +1528,25 @@ local function find_live()
     if #base.vt == 0 then return nil end
     -- two sets of stretches: a copy from before (since moved or deleted) can still be written in where the first look
     local size = #base.vt
+    local last = config.data.tables_at or {}
+    local vt, ft
     for _, from in ipairs({ { 40960, math.floor(size / 2) }, { math.floor(size / 4), math.floor(size * 3 / 4) } }) do
-        local v_at, v_probe = probe_at(base.vt, from[1], 1)
-        local v_at2, v_probe2 = probe_at(base.vt, from[2], 1)
-        local f_at, f_probe = probe_at(base.ft, from[1] * 2, 2)
-        if v_at and v_at2 and f_at then
-            -- where they were last time: the game keeps them there until it restarts, so a reload needn't search again
-            local last = config.data.tables_at
-            if last and vana.memory.find(last.vt + v_at, TABLES_PROBE, v_probe) ~= 0
-                and vana.memory.find(last.vt + v_at2, TABLES_PROBE, v_probe2) ~= 0
-                and vana.memory.find(last.ft + f_at, TABLES_PROBE, f_probe) ~= 0 then
-                live = { vt = last.vt, ft = last.ft }
-                return live
+        local v_at, v_hex = probe_at(base.vt, from[1], 1)
+        local v_at2, v_hex2 = probe_at(base.vt, from[2], 1)
+        local f_at, f_hex = probe_at(base.ft, from[1] * 2, 2)
+        if not vt and v_at and v_at2 then
+            vt = find_table('vt', last.vt, { { at = v_at, hex = v_hex }, { at = v_at2, hex = v_hex2 } })
+        end
+        if not ft and f_at then
+            ft = find_table('ft', last.ft, { { at = f_at, hex = f_hex } })
+        end
+        if vt and ft then
+            live = { vt = vt, ft = ft }
+            if last.vt ~= vt or last.ft ~= ft then
+                config.data.tables_at = { vt = vt, ft = ft }
+                config:save()
             end
-            for block = 0x10000, 0x7FFF0000, 0x10000 do
-                if vana.memory.find(block + v_at, TABLES_PROBE, v_probe) ~= 0
-                    and vana.memory.find(block + v_at2, TABLES_PROBE, v_probe2) ~= 0 then
-                    for step = 1, 64 do
-                        local f_block = block + step * 0x10000
-                        if vana.memory.find(f_block + f_at, TABLES_PROBE, f_probe) ~= 0 then
-                            live = { vt = block, ft = f_block }
-                            config.data.tables_at = { vt = block, ft = f_block }
-                            config:save()
-                            return live
-                        end
-                    end
-                end
-            end
+            return live
         end
     end
     return nil
@@ -1454,14 +1566,18 @@ local function update_tables()
     for _, entry in pairs(privates()) do
         if entry.fid < #tables().vt and not has_file(entry.fid) then mine[#mine + 1] = entry end
     end
-    if #mine == 0 then return true end
+    if #mine == 0 then return true, 0 end
     local at = find_live()
     if not at then return false end
+    local added = 0    -- entries the game didn't have yet
     for _, entry in ipairs(mine) do
+        if vana.memory.read_uint8(at.vt + entry.fid) ~= VT_ROM or vana.memory.read_uint16(at.ft + entry.fid * 2) ~= entry.value then
+            added = added + 1
+        end
         vana.memory.write_uint8(at.vt + entry.fid, VT_ROM)
         vana.memory.write_uint16(at.ft + entry.fid * 2, entry.value)
     end
-    return true
+    return true, added
 end
 
 -- a moved copy's old file number gets the server's entry back
@@ -1567,7 +1683,12 @@ function core.check_private()
             if move_private(own_rel, entry) then moved = moved + 1 end
         end
     end
-    update_tables()
+    local found, added = update_tables()
+    if not found then
+        private_checked[race] = nil    -- the game's tables weren't found: again after the next zone looks again
+    elseif (added or 0) > 0 and moved == 0 then
+        core.redraw()    -- copies drawn before the game knew of them drew nothing: draw them again now it does
+    end
     if moved > 0 then
         say(('Made %d recolored piece%s yours alone.'):format(moved, moved == 1 and '' or 's'))
         core.redraw()
@@ -1785,9 +1906,10 @@ function core.apply_effect(key, redraw)
         if not target then return false end
     end
     local effects = ''
-    if choice == nil then    -- the piece's own, from the game's file; gear built here has none
-        local source = core.is_recolored_copy(target) and served(original_rel(target.rel))
-        effects = source and colors.effects_of(colors.read(source) or '') or ''
+    local own_source = core.is_recolored_copy(target) and served(original_rel(target.rel))
+    local own = own_source and colors.effects_of(colors.read(own_source) or '') or ''    -- gear built here has none
+    if choice == nil then    -- the piece's own, from the game's file
+        effects = own
     elseif choice ~= 'off' then
         local source, turn = effect_source(key, choice)
         if not source then

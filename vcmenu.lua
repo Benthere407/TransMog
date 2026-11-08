@@ -637,7 +637,7 @@ function vc.row(id, o)
 
     local th = select(2, xy(imgui.CalcTextSize('Ag')));
     local ty = y + (rh - th) / 2;
-    local rw, mw = vc.row_cols();
+    local rw, mw = vc.row_cols(nil, o.mid_sample);    -- o.mid_sample: text the middle column is as wide as
     local gap = Z(vc.ROW_GAP);
     local right_edge = x + w - Z(vc.ROW_PAD);
     local ncols      = o.cols and #o.cols or 0;

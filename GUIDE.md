@@ -13,6 +13,10 @@ Open the window with `/tm`. The menu on the left switches pages, and `/tm <page>
 1. Open **Lockstyle** and turn on **TransMog ON**.
 2. Click a slot in **Your Look** (Head, Body, Legs, ...). The list below it, **Choose**, shows every piece for that
    slot your race can wear. Type in the search box to narrow it down.
+   For Main, Sub and Range, each weapon shows its type and whether it takes one hand or two ("Sword, 1H",
+   "Great sword, 2H"), and **glow** when the look has an effect built in. Relic, mythic and empyrean weapons come as
+   several looks with one name, some with a glow and some without. The drop-down beside the search box shows one
+   weapon type, or **With a glow**.
 3. Click a piece. It goes on your character straight away.
 4. A slot left on **Worn gear** shows what you're wearing. With TransMog ON it stays as you looked when you turned it on,
    so a job change that swaps your gear doesn't change your look. Turn TransMog off and on to lock to new gear.
@@ -101,6 +105,10 @@ load starts on Its own. From a macro: `/tm effect main Coruscanti`, `/tm effect 
 A glow on the sub hand shows on your sub weapon. Some glows aren't on the blade: Irradiance Blade's is an aura on
 the ground at your feet, so on both hands the two overlap and look like one.
 
+A glow takes the place of the weapon's own effect; it doesn't add to it. Some weapons' blades are their effect
+(Fermion Sword's white blade is): with another glow, only the hilt shows, so leave those on **Its own**. To show two
+effects at once, put them on different slots, such as the main hand's own effect and an aura on the ranged weapon.
+
 An effect stays with the slot, so after a gear change it moves to the new piece. A piece getting an effect for the first
 time usually shows it at once. After many new pieces between zones, the next ones show plain until you zone, then
 with their effect.
@@ -160,5 +168,6 @@ your own mod, see **Adding a mod** in the [README](README.md).
 | Others see you blink | No blink is on your screen only: type the game's own `/lockstyle on` (again after a job change) |
 | New colors don't show on a piece | The first recolor of a normal piece needs one zone |
 | A new piece shows without its effect | Zone: it gets the effect then |
-| Recolored pieces or weapons draw nothing (only your head shows) | Fixed in 2.0.3. On an older version, close the game and start it again |
+| Recolored pieces or weapons draw nothing (only your head shows) | Update to 2.0.6 and reload TransMog. If it still happens, zone: TransMog looks for the game's file list again then |
+| A weapon shows only its hilt | Its blade is its own effect (Fermion Sword): set that slot's effect back to **Its own** |
 | A mount's new look doesn't show | Zone: calling the mount again isn't enough |

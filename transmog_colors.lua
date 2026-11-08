@@ -239,7 +239,9 @@ end
 -- them: the parts the game starts a glow by are named for the hand (!w00, !w01, !w02 in the main hand; !w10, !w11,
 -- !w12 in the sub); the other generators and schedulers get names of their own, so the same glow can be in both hands
 -- at once; and each generator's first byte loses the main hand's bit (0x79 in the main hand, 0x69 in the sub).
--- Names are 4 bytes; a reference to one is the name itself, 4-byte aligned in the part's data.
+-- Names are 4 bytes; a reference to one is the name itself, 4-byte aligned in the part's data. A scheduler's names are
+-- of generators and schedulers; a generator's are of textures and meshes, which keep theirs (Coruscanti has a generator
+-- and a texture both called tb01: its sub-hand generator is ltb1, and still draws texture tb01).
 local GENERATOR, SCHEDULER = 0x05, 0x07
 local MAIN_HAND_BIT = 0x10
 
@@ -283,7 +285,7 @@ function colors.for_sub_hand(effects)
         local pieces = { rename[part.name] or part.name, data:sub(5, CHUNK_HEADER) }
         for at = CHUNK_HEADER, part.size - 4, 4 do
             local word = data:sub(at + 1, at + 4)
-            pieces[#pieces + 1] = rename[word] or word
+            pieces[#pieces + 1] = part.kind == SCHEDULER and rename[word] or word
         end
         pieces[#pieces + 1] = data:sub(part.size - (part.size - CHUNK_HEADER) % 4 + 1)
         local turned = table.concat(pieces)

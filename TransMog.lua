@@ -17,7 +17,7 @@ In game:
 
 addon.name    = 'TransMog';
 addon.author  = 'Benthere';
-addon.version = '2.0.5';
+addon.version = '2.0.6';
 addon.desc    = 'Turns DAT mods for mounts, gear and weapons on and off.';
 
 require('common');
@@ -33,6 +33,8 @@ local win = vc.new_state('lock');
 local target, look;    -- what the mount swap's two boxes have picked
 local slot_key = 'body';    -- the slot the gear list is for
 local find = { '' };
+local type_filter = {};      -- slot key -> the weapon type the Choose list shows ('glow': those with a glow), or nil
+local TYPE_FILTER_W = 150;
 local set_name = { '' };
 local chosen_set;    -- the set picked on the Job LockStyles page
 
@@ -304,9 +306,28 @@ PAGES.lock = function ()
     for _, slot in ipairs(core.SLOTS) do
         if slot.key == slot_key then label = slot.label:upper(); end
     end
-    local items, total = core.items_for(slot_key, find[1]);
+    -- weapons: a filter by type (or by a glow built in) beside the search box
+    local types = (slot_key == 'main' or slot_key == 'sub' or slot_key == 'range') and core.weapon_types(slot_key) or nil;
+    local filter = types and type_filter[slot_key] or nil;
+    local items, total = core.items_for(slot_key, find[1], filter);
     vc.section('CHOOSE ' .. label, ('%d looks'):format(total));
-    vc.search_box('##find', find, 'Search ' .. label:lower(), -1);
+    if types then
+        local combo_w = vc.z(TYPE_FILTER_W);
+        vc.search_box('##find', find, 'Search ' .. label:lower(), -(combo_w + vc.z(8)));
+        imgui.SameLine();
+        imgui.SetNextItemWidth(combo_w);
+        local shown = filter == nil and 'All types' or filter == 'glow' and 'With a glow' or filter;
+        if imgui.BeginCombo('##type_filter', shown) then
+            if imgui.Selectable('All types', filter == nil) then type_filter[slot_key] = nil; end
+            if imgui.Selectable('With a glow', filter == 'glow') then type_filter[slot_key] = 'glow'; end
+            for _, name in ipairs(types) do
+                if imgui.Selectable(name, filter == name) then type_filter[slot_key] = name; end
+            end
+            imgui.EndCombo();
+        end
+    else
+        vc.search_box('##find', find, 'Search ' .. label:lower(), -1);
+    end
     -- the piece Your Look shows in this slot goes first: moved up from where it sits, or added when it is past the
     -- rows the list holds (only while not searching, or when the search finds it)
     local picked, top = cfg.picks[slot_key], nil;
@@ -320,8 +341,13 @@ PAGES.lock = function ()
     end
     local function item_row(item)
         local tag = modified_tag(slot_key, item.id);
+        -- weapons say their type, and for the hands whether one hand or two, and whether the look has a glow built in
+        -- (relics and the like come as several looks of one name, some with one)
+        local kind = item.kind or core.weapon_kind(slot_key, item.id);
+        if kind and item.model and core.has_glow(slot_key, item.model) then kind = kind .. ', glow'; end
         if vc.row('item_' .. item.id, { icon = core.icon_of(item.id), name = item.name, right = tag or (item.main_only and 'May not match' or nil),
                                         right_col = tag and VC.teal or VC.gold, right_fit = true,
+                                        mid = kind, mid_sample = kind and 'Hand-to-hand, both hands, glow' or nil,
                                         selected = core.same_look(slot_key, cfg.picks[slot_key], item.id) }) then
             core.pick(slot_key, item);
         end
@@ -354,8 +380,11 @@ PAGES.lock = function ()
             end
         end
         for _, item in ipairs(items) do item_row(item); end
-        if total > #items then
-            vc.note(('Showing the first %d. Search to narrow it down.'):format(#items));
+        local listed = #items + (top and 1 or 0);    -- the picked piece, moved to the top, is one of them
+        if total > listed then
+            vc.note(('Showing the first %d. Search to narrow it down.'):format(listed));
+        elseif filter == 'glow' and total == 0 then
+            vc.note('Looking through the weapons for glows...');
         end
     end);
 end;
