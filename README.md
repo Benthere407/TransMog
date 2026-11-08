@@ -52,6 +52,7 @@ are in `tools\`. The White and gold robe shown in the pictures isn't included.
 | `/tm race <race> [sex]` | Draws you as a race: `hume`, `elvaan`, `tarutaru`, `mithra`, `galka`; `own` for your own |
 | `/tm face <1a-8b>` | Your face (1 to 8) and hair (A or B); `own` for your own |
 | `/tm size <50-200>` | Your size, in percent of your own; `own` for your own |
+| `/tm effect <slot> <effect>` | Puts wings (body) or a glow (main, sub, range) on a slot, e.g. `/tm effect main Coruscanti`; `own` or `off` |
 | `/tm recolor <slot>` | Makes the piece shown in a slot recolorable |
 | `/tm list` | Lists the mods, and which are on |
 | `/tm on <mod>`, `/tm off <mod>` | Turns a mod on or off |

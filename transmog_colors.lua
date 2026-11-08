@@ -154,12 +154,15 @@ end
 
 -- Effects, such as Gyve Doublet's wings or a weapon's glow, are folders of their own inside a piece's file: children of
 -- its outer folder, apart from its sound and motion folder (em_*) and, in some weapons, a folder holding the model under
--- the outer folder's own name. They can be moved from one piece's file to another's.
+-- the outer folder's own name. They can be moved from one piece's file to another's. A folder holding a model or a
+-- skeleton is the piece itself, whatever its name: the relic weapons and some shields keep theirs in one ("31em" in
+-- Mandau's file), and moving it out leaves the weapon invisible.
 local FOLDER, END, INFO = 0x01, 0x00, 0x45
+local MODEL_KINDS = { [0x29] = true, [0x2A] = true }    -- skeleton, mesh
 
 local function effect_blocks(data)
     local blocks, depth, offset, root, start = {}, 0, 0, nil, nil
-    local info_at
+    local info_at, has_model
     while offset + CHUNK_HEADER <= #data do
         local value = u32(data, offset + 4)
         local size = math.floor(value / 128) % 524288 * 16
@@ -168,20 +171,35 @@ local function effect_blocks(data)
         if kind == FOLDER then
             depth = depth + 1
             if depth == 1 then root = name end
-            if depth == 2 and name ~= root and name:sub(1, 3) ~= 'em_' then start = offset end
+            if depth == 2 and name ~= root and name:sub(1, 3) ~= 'em_' then start, has_model = offset, false end
         elseif kind == END then
             if depth == 2 and start then
-                blocks[#blocks + 1] = { start, offset + size }
+                if not has_model then blocks[#blocks + 1] = { start, offset + size } end
                 start = nil
             end
             if depth == 1 and not info_at then info_at = offset end    -- the outer folder's own end
             depth = depth - 1
         elseif kind == INFO and depth == 1 then
             info_at = offset
+        elseif start and MODEL_KINDS[kind] then
+            has_model = true
         end
         offset = offset + size
     end
     return blocks, info_at
+end
+
+-- how many meshes a file holds: a copy with fewer than the game's file lost one to an older TransMog
+function colors.mesh_count(data)
+    local count, offset = 0, 0
+    while data and offset + CHUNK_HEADER <= #data do
+        local value = u32(data, offset + 4)
+        local size = math.floor(value / 128) % 524288 * 16
+        if size < CHUNK_HEADER then break end
+        if value % 128 == 0x2A then count = count + 1 end
+        offset = offset + size
+    end
+    return count
 end
 
 -- a file's effect folders, as one string

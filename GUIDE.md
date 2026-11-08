@@ -82,7 +82,11 @@ it shows). Your copy uses a model number no item has, so nobody else wearing tha
 
 Pick **Wings** to give your body piece the wings of Gyve Doublet or Tartarus Platemail, and a **glow** for each
 weapon slot from about 20 glowing weapons. **Its own** keeps the piece's own effect, and **None** removes it. Every
-load starts on Its own.
+load starts on Its own. From a macro: `/tm effect main Coruscanti`, `/tm effect body Gyve Doublet`, or `own` / `off`.
+
+An effect stays with the slot, so after a gear change it moves to the new piece. A piece getting an effect for the first
+time usually shows it at once. After many new pieces between zones, the next ones show plain until you zone, then
+with their effect.
 
 ## 6. Another race, face, hair or size
 
@@ -138,4 +142,5 @@ your own mod, see **Adding a mod** in the [README](README.md).
 | You blink when gear changes | Turn on **No blink on gear change**; for weapons, also **Weapons too** |
 | Others see you blink | No blink is on your screen only: type the game's own `/lockstyle on` (again after a job change) |
 | New colors don't show on a piece | The first recolor of a normal piece needs one zone |
+| A new piece shows without its effect | Zone: it gets the effect then |
 | A mount's new look doesn't show | Zone: calling the mount again isn't enough |

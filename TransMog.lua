@@ -17,7 +17,7 @@ In game:
 
 addon.name    = 'TransMog';
 addon.author  = 'Benthere';
-addon.version = '2.0';
+addon.version = '2.0.1';
 addon.desc    = 'Turns DAT mods for mounts, gear and weapons on and off.';
 
 require('common');

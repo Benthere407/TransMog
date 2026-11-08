@@ -455,6 +455,25 @@ function core.command(args)
         else
             say('No saved set called ' .. name .. '.')
         end
+    elseif action == 'effect' and args[3] and args[4] then    -- /tm effect main Coruscanti, /tm effect body own|off
+        local key, name = args[3]:lower(), table.concat(args, ' ', 4)
+        local choice
+        if name:lower() == 'own' then
+            choice = nil
+        elseif name:lower() == 'off' then
+            choice = 'off'
+        else
+            for _, entry in ipairs(key == 'body' and core.effect_choices().wings or core.effect_choices().glows) do
+                if entry.name:lower() == name:lower() then choice = entry.name end
+            end
+        end
+        if not core.EFFECT_SLOTS[key] then
+            say('Effects go on body, main, sub or range.')
+        elseif choice == nil and name:lower() ~= 'own' then
+            say('No effect called ' .. name .. '.')
+        else
+            core.set_effect(key, choice)
+        end
     elseif action == 'race' and args[3] then    -- /tm race elvaan female, /tm race own
         local want, sex = args[3]:lower(), (args[4] or ''):lower()
         local pick
@@ -481,7 +500,7 @@ function core.command(args)
             say('Size: 50 to 200 (percent of your own); or own.')
         end
     else
-        print('[TransMog] /tm, /tm list, /tm on|off <mod>, /tm mount <target> <look>, /tm recolor <slot>, /tm save|wear <set>, /tm race <race> [sex], /tm face <1a-8b>, /tm size <50-200>')
+        print('[TransMog] /tm, /tm list, /tm on|off <mod>, /tm mount <target> <look>, /tm recolor <slot>, /tm save|wear <set>, /tm effect <slot> <name|own|off>, /tm race <race> [sex], /tm face <1a-8b>, /tm size <50-200>')
     end
 end
 
@@ -1190,12 +1209,55 @@ drawable = function (key, model)
     return has_file(file)
 end
 
+-- A file new to a mod's folder reaches the game only from the next zone (VanaCore's overlays take in what's there
+-- then), so a copy written to a new file would draw nothing till then: a body with wings put on in a gear change goes
+-- invisible. A few empty spare files wait at the next free private paths, made at each zone for the ones after it, and
+-- a copy written over one shows at once. A copy whose file is newer than the last zone shows the piece itself, without
+-- its colors or effect, until the next zone.
+local SPARES = 10    -- enough for a few gear changes between zones, each slot with an effect getting a new copy
+local fresh = {}    -- private paths whose file was made since the last zone
+
 private_model = function (key, model)
     local race = race_now()
     for _, entry in pairs(privates()) do
-        if entry.key == key and entry.model == model and entry.race == race then return entry.pmodel end
+        if entry.key == key and entry.model == model and entry.race == race then
+            return fresh[entry.rel] and model or entry.pmodel
+        end
     end
     return model
+end
+
+-- the next free private paths, in the order claim takes them
+local function free_paths(count)
+    local used, list = {}, {}
+    for _, entry in pairs(privates()) do used[entry.rel] = true end
+    for n = 0, 128 * 64 - 1 do
+        local dir = PRIVATE_DIR - math.floor(n / 128)
+        local rel = ('ROM\\%d\\%d.DAT'):format(dir, n % 128)
+        if not used[rel] then
+            list[#list + 1] = { rel = rel, dir = dir }
+            if #list >= count then break end
+        end
+    end
+    return list
+end
+
+local function make_spares()
+    local folder = core.root() .. '\\TransMog\\' .. COLORS_MOD
+    if not vana.fs.exists(folder .. '\\' .. MANIFEST) then return end    -- nothing recolored yet: no folder to wait in
+    for _, spare in ipairs(free_paths(SPARES)) do
+        local path = folder .. '\\' .. spare.rel
+        if not vana.fs.exists(path) then
+            vana.fs.create_dir(folder .. '\\ROM\\' .. spare.dir)
+            if vana.fs.write(path, '') then fresh[spare.rel] = true end
+        end
+    end
+end
+
+-- at a zone, every file there is the game's to read: copies made since show as themselves now
+local function zoned()
+    fresh = {}
+    make_spares()
 end
 
 -- the piece's own file for a private copy's file, else the file itself
@@ -1317,11 +1379,14 @@ local function make_private(key, own_rel, model, source, name)
     if not entry then return nil, why end
     entry.model = model
     local folder = core.root() .. '\\TransMog\\' .. COLORS_MOD
+    local new_file = not vana.fs.exists(folder .. '\\' .. entry.rel)    -- not a spare: the game can't read it yet
     local palette, err = colors.prepare(folder, entry.rel, source, name)
     if not palette then return nil, err end
+    if new_file then fresh[entry.rel] = true end
     privates()[own_rel] = entry
     config:save()
     update_tables()
+    make_spares()    -- the next copy finds one waiting
     return entry
 end
 
@@ -1368,7 +1433,9 @@ local function move_private(own_rel, entry)
     local new = claim(key)
     if not new then return false end
     new.model = model
+    local new_file = not vana.fs.exists(folder .. '\\' .. new.rel)
     if not colors.rename(folder, from, new.rel) then return false end
+    if new_file then fresh[new.rel] = true end
     for _, store in ipairs({ config.data.colors, config.data.color_saves }) do
         local saved = store[COLORS_MOD]
         if saved and saved[from] ~= nil then saved[new.rel], saved[from] = saved[from], nil end
@@ -1565,6 +1632,20 @@ local function restore_effects(rel)
             return
         end
     end
+end
+
+-- A copy whose model an older TransMog moved out with an effect (a relic weapon's, kept in a folder of its own) is
+-- copied again from the game's file; its colors and effects are put back on it after.
+local function repair_copy(mod, rel)
+    local path = mod.path .. '\\' .. rel
+    local source = served(original_rel(rel))
+    local original = source and read_file(source)
+    if not original or colors.mesh_count(read_file(path)) >= colors.mesh_count(original) then return end
+    local f = io.open(path, 'wb')
+    if not f then return end
+    f:write(original)
+    f:close()
+    effects_changed()[rel] = true    -- so it gets its own effects back too
 end
 
 -- puts the chosen effect on the piece shown in a slot. With redraw, you are redrawn to show it.
@@ -1967,6 +2048,7 @@ function core.start()
         local saved = config.data.colors[mod.folder] or {}
         local info = colors.info(mod.path)    -- effects left on pieces no slot shows any more go; the shown get theirs
         for rel in pairs(info and info.files or {}) do
+            if mod.folder == COLORS_MOD then repair_copy(mod, rel) end
             colors.apply(mod.path, saved[rel] or core.default_colors(mod, rel), rel)
             -- only a file given another effect needs its own back (every file, the first time, as nothing was noted)
             if not config.data.effects_noted or effects_changed()[rel] then restore_effects(rel) end
@@ -1975,8 +2057,10 @@ function core.start()
     config.data.effects_noted = true
     config:save()
     update_pending()
-    vana.on('zone_change', mark_loaded)
-    vana.on('login', mark_loaded)
+    local function on_zone() mark_loaded(); zoned(); sync_now() end
+    vana.on('zone_change', on_zone)
+    vana.on('login', on_zone)
+    make_spares()
 end
 
 return core
