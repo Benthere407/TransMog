@@ -605,6 +605,7 @@ end
 -- stays with the first character it draws on.
 local CHARACTERS = 'characters/'
 local char_name, char_saved    -- the character this game has loaded, and its file's text as last written
+local own_face, own_size       -- your own face and size, as the server gives them, before the Race page changed them
 
 local function char_path(name)
     return addon.path .. CHARACTERS .. name .. '.json'
@@ -612,7 +613,7 @@ end
 
 local function char_text()
     return vana.json.encode({ picks = config.data.picks, real = config.data.real, own_race = config.data.own_race,
-                              locked = config.data.locked })
+                              own_face = own_face, locked = config.data.locked })
 end
 
 -- writes this character's file when its look, gear or race changed
@@ -647,6 +648,7 @@ local function own_character(entity)
     mine = mine or {}
     config.data.picks, config.data.real, config.data.own_race = mine.picks or {}, mine.real or {}, mine.own_race
     config.data.locked = mine.locked
+    own_face = mine.own_face
     config.data.char_of, config.data.chars = name, nil
     char_name, char_saved = name, nil
     save_character()
@@ -703,21 +705,20 @@ local function wanted(i, slot)
     return real and (real - real % 0x1000 + private_model(slot.key, real % 0x1000)) or nil
 end
 
-local own_face, own_size    -- what the game drew before the Race page changed it
-
 local function sync()
     local entity = find_self()
     local address = entity and self_address()
     if not address then return end
     local changed = own_character(entity)
-    -- the race you picked on the Race page, held through zones; with none picked, the race the server gives is yours
+    -- the race you picked on the Race page, held through zones. Your own race is the server's (see on_packet): what's
+    -- drawn is only taken as yours when nothing is known, as a reload can find another race still drawn
     local race = vana.memory.read_uint8(address + ENTITY_RACE)
     if config.data.race then
         if race ~= config.data.race then
             vana.memory.write_uint8(address + ENTITY_RACE, config.data.race)
             changed = true
         end
-    elseif race >= 1 and race <= 8 and config.data.own_race ~= race then
+    elseif race >= 1 and race <= 8 and not config.data.own_race then
         config.data.own_race = race
         config:save()
     end
@@ -728,8 +729,9 @@ local function sync()
             vana.memory.write_uint16(address + ENTITY_LOOK, config.data.face)
             changed = true
         end
-    elseif face < core.FACES then
+    elseif face < core.FACES and own_face == nil then
         own_face = face
+        save_character()
     end
     local size = vana.memory.read_float(address + ENTITY_SIZE)
     local want_size = config.data.size or own_size
@@ -794,6 +796,16 @@ local function on_packet(e)
     local entity = find_self()
     if entity then own_character(entity) end    -- so the gear remembered is this character's
     remember_real(e.data, offset)
+    -- your own face and race, just before the gear: the server's, whatever the Race page draws
+    local face, race = e.data:byte(offset - 1), e.data:byte(offset)
+    if race and race >= 1 and race <= 8 and race ~= config.data.own_race then
+        config.data.own_race = race
+        config:save()
+    end
+    if face and face < core.FACES and face ~= own_face then
+        own_face = face
+        save_character()
+    end
     if config.data.lock or next(config.data.private or {}) or config.data.race or config.data.face then
         e.data_modified = rewrite(e.data, offset)
     end
@@ -1179,10 +1191,41 @@ local VT_ROM = 1                  -- a file table byte for the ROM folder
 local TABLES_PROBE = 64           -- bytes compared at each place a table could start
 
 local base_tables    -- { vt, ft } as the game and the server have them, without ours; read once
+-- The game's file tables: VTABLE.DAT and FTABLE.DAT, with each expansion's own (ROM2\VTABLE2.DAT on, and CatsEyeXI's
+-- ROM10) filled in where the main one has nothing, as the game itself puts them together. Without the expansions'
+-- a number the game uses for one of their files looks free, and a copy given it replaces that file, or draws nothing.
+local MAX_ROM = 20
 local function tables()
     if not base_tables then
         local vt, ft = served('VTABLE.DAT'), served('FTABLE.DAT')
-        base_tables = { vt = vt and read_file(vt) or '', ft = ft and read_file(ft) or '' }
+        vt, ft = vt and read_file(vt) or '', ft and read_file(ft) or ''
+        local v_over, f_over, ids = {}, {}, {}
+        for n = 2, MAX_ROM do
+            local v_path = served(('ROM%d\\VTABLE%d.DAT'):format(n, n))
+            local f_path = served(('ROM%d\\FTABLE%d.DAT'):format(n, n))
+            local v_data, f_data = v_path and read_file(v_path), f_path and read_file(f_path)
+            if v_data and f_data then
+                for id = 1, math.min(#v_data, #vt) do
+                    local byte = v_data:byte(id)
+                    if byte ~= 0 and not v_over[id] and vt:byte(id) == 0 then
+                        v_over[id], f_over[id] = byte, f_data:sub(id * 2 - 1, id * 2)
+                        ids[#ids + 1] = id
+                    end
+                end
+            end
+        end
+        if #ids > 0 then
+            table.sort(ids)
+            local v_parts, f_parts, from = {}, {}, 1
+            for _, id in ipairs(ids) do
+                v_parts[#v_parts + 1] = vt:sub(from, id - 1) .. string.char(v_over[id])
+                f_parts[#f_parts + 1] = ft:sub(from * 2 - 1, id * 2 - 2) .. f_over[id]
+                from = id + 1
+            end
+            v_parts[#v_parts + 1], f_parts[#f_parts + 1] = vt:sub(from), ft:sub(from * 2 - 1)
+            vt, ft = table.concat(v_parts), table.concat(f_parts)
+        end
+        base_tables = { vt = vt, ft = ft }
     end
     return base_tables
 end
@@ -1197,9 +1240,12 @@ local function privates()
     return config.data.private
 end
 
+-- the race whose files you're drawn with, which copies are kept by: Tarutaru male and female (5 and 6) read the very
+-- same files, so they share copies
 local function race_now()
     local entity = find_self()
-    return entity and entity.race
+    local race = entity and entity.race
+    return race == 6 and 5 or race
 end
 
 drawable = function (key, model)
@@ -1213,15 +1259,23 @@ end
 -- then), so a copy written to a new file would draw nothing till then: a body with wings put on in a gear change goes
 -- invisible. A few empty spare files wait at the next free private paths, made at each zone for the ones after it, and
 -- a copy written over one shows at once. A copy whose file is newer than the last zone shows the piece itself, without
--- its colors or effect, until the next zone.
-local SPARES = 10    -- enough for a few gear changes between zones, each slot with an effect getting a new copy
-local fresh = {}    -- private paths whose file was made since the last zone
+-- its colors or effect, until the next zone. Which files are that new is kept in the settings: a reload between zones
+-- must not take them for files the game can read, or what's on them draws nothing.
+local SPARES = 40    -- enough for several race or gear changes between zones: a race change can need a new copy for
+                     -- every recolored slot, and each slot with an effect gets a new copy at a gear change
+
+-- private paths whose file was made since the last zone
+local function unseen()
+    config.data.unseen = config.data.unseen or {}
+    return config.data.unseen
+end
 
 private_model = function (key, model)
     local race = race_now()
     for _, entry in pairs(privates()) do
         if entry.key == key and entry.model == model and entry.race == race then
-            return fresh[entry.rel] and model or entry.pmodel
+            if unseen()[entry.rel] or has_file(entry.fid) then return model end    -- not readable yet, or not ours now
+            return entry.pmodel
         end
     end
     return model
@@ -1245,19 +1299,22 @@ end
 local function make_spares()
     local folder = core.root() .. '\\TransMog\\' .. COLORS_MOD
     if not vana.fs.exists(folder .. '\\' .. MANIFEST) then return end    -- nothing recolored yet: no folder to wait in
+    local made = false
     for _, spare in ipairs(free_paths(SPARES)) do
         local path = folder .. '\\' .. spare.rel
         if not vana.fs.exists(path) then
             vana.fs.create_dir(folder .. '\\ROM\\' .. spare.dir)
-            if vana.fs.write(path, '') then fresh[spare.rel] = true end
+            if vana.fs.write(path, '') then unseen()[spare.rel], made = true, true end
         end
     end
+    if made then config:save() end
 end
 
 -- at a zone, every file there is the game's to read: copies made since show as themselves now
 local function zoned()
-    fresh = {}
+    config.data.unseen = {}
     make_spares()
+    config:save()
 end
 
 -- the piece's own file for a private copy's file, else the file itself
@@ -1299,13 +1356,23 @@ local function hex(text)
     return (text:gsub('.', function (c) return ('%02X '):format(c:byte()) end))
 end
 
-local function probe_at(data, from)    -- a varied stretch from `from` on
+-- a varied stretch from `from` on, holding none of our copies' entries (`width` bytes each): the game's tables in
+-- memory have our copies written in, so a stretch with one in it would never match the file again
+local function probe_at(data, from, width)
+    local ours = {}
+    for _, entry in pairs(privates()) do ours[entry.fid] = true end
     for at = from, #data - TABLES_PROBE, TABLES_PROBE do
-        local piece, kinds, count = data:sub(at + 1, at + TABLES_PROBE), {}, 0
-        for i = 1, #piece do
-            if not kinds[piece:byte(i)] then kinds[piece:byte(i)], count = true, count + 1 end
+        local clean = true
+        for id = math.floor(at / width), math.floor((at + TABLES_PROBE - 1) / width) do
+            if ours[id] then clean = false break end
         end
-        if count >= 2 then return at, hex(piece) end    -- a VTABLE holds little but 0 and 1
+        if clean then
+            local piece, kinds, count = data:sub(at + 1, at + TABLES_PROBE), {}, 0
+            for i = 1, #piece do
+                if not kinds[piece:byte(i)] then kinds[piece:byte(i)], count = true, count + 1 end
+            end
+            if count >= 2 then return at, hex(piece) end    -- a VTABLE holds little but 0 and 1
+        end
     end
 end
 
@@ -1314,28 +1381,33 @@ local function find_live()
     live = false
     local base = tables()
     if #base.vt == 0 then return nil end
-    local v_at, v_probe = probe_at(base.vt, 40960)
-    local v_at2, v_probe2 = probe_at(base.vt, math.floor(#base.vt / 2))
-    local f_at, f_probe = probe_at(base.ft, 81920)
-    if not v_at or not v_at2 or not f_at then return nil end
-    -- where they were last time: the game keeps them there until it restarts, so a reload needn't search again
-    local last = config.data.tables_at
-    if last and vana.memory.find(last.vt + v_at, TABLES_PROBE, v_probe) ~= 0
-        and vana.memory.find(last.vt + v_at2, TABLES_PROBE, v_probe2) ~= 0
-        and vana.memory.find(last.ft + f_at, TABLES_PROBE, f_probe) ~= 0 then
-        live = { vt = last.vt, ft = last.ft }
-        return live
-    end
-    for block = 0x10000, 0x7FFF0000, 0x10000 do
-        if vana.memory.find(block + v_at, TABLES_PROBE, v_probe) ~= 0
-            and vana.memory.find(block + v_at2, TABLES_PROBE, v_probe2) ~= 0 then
-            for step = 1, 64 do
-                local f_block = block + step * 0x10000
-                if vana.memory.find(f_block + f_at, TABLES_PROBE, f_probe) ~= 0 then
-                    live = { vt = block, ft = f_block }
-                    config.data.tables_at = { vt = block, ft = f_block }
-                    config:save()
-                    return live
+    -- two sets of stretches: a copy from before (since moved or deleted) can still be written in where the first look
+    local size = #base.vt
+    for _, from in ipairs({ { 40960, math.floor(size / 2) }, { math.floor(size / 4), math.floor(size * 3 / 4) } }) do
+        local v_at, v_probe = probe_at(base.vt, from[1], 1)
+        local v_at2, v_probe2 = probe_at(base.vt, from[2], 1)
+        local f_at, f_probe = probe_at(base.ft, from[1] * 2, 2)
+        if v_at and v_at2 and f_at then
+            -- where they were last time: the game keeps them there until it restarts, so a reload needn't search again
+            local last = config.data.tables_at
+            if last and vana.memory.find(last.vt + v_at, TABLES_PROBE, v_probe) ~= 0
+                and vana.memory.find(last.vt + v_at2, TABLES_PROBE, v_probe2) ~= 0
+                and vana.memory.find(last.ft + f_at, TABLES_PROBE, f_probe) ~= 0 then
+                live = { vt = last.vt, ft = last.ft }
+                return live
+            end
+            for block = 0x10000, 0x7FFF0000, 0x10000 do
+                if vana.memory.find(block + v_at, TABLES_PROBE, v_probe) ~= 0
+                    and vana.memory.find(block + v_at2, TABLES_PROBE, v_probe2) ~= 0 then
+                    for step = 1, 64 do
+                        local f_block = block + step * 0x10000
+                        if vana.memory.find(f_block + f_at, TABLES_PROBE, f_probe) ~= 0 then
+                            live = { vt = block, ft = f_block }
+                            config.data.tables_at = { vt = block, ft = f_block }
+                            config:save()
+                            return live
+                        end
+                    end
                 end
             end
         end
@@ -1344,15 +1416,18 @@ local function find_live()
 end
 
 -- the game reads its tables once, at its start, before TransMog's folders are in the DAT order, so it always starts
--- from the server's own; each session our copies' file numbers are written into its copy in memory
+-- from the server's own; each session our copies' file numbers are written into its copy in memory. Every race's
+-- copies go in, not only the race you're drawn as now: their numbers are each their own, and a race picked later on the
+-- Race page would otherwise draw its recolored pieces from files the game has never heard of, so not at all. A number
+-- a file of the game's has taken since stays the game's (your race's copy on it moves; see core.check_private).
 local function update_tables()
     local folder = core.root() .. '\\TransMog\\' .. COLORS_MOD
     for _, name in ipairs({ 'VTABLE.DAT', 'FTABLE.DAT' }) do    -- tables an earlier TransMog wrote: not wanted
         if vana.fs.exists(folder .. '\\' .. name) then vana.fs.remove(folder .. '\\' .. name) end
     end
-    local race, mine = race_now(), {}
+    local mine = {}
     for _, entry in pairs(privates()) do
-        if entry.race == race and entry.fid < #tables().vt then mine[#mine + 1] = entry end
+        if entry.fid < #tables().vt and not has_file(entry.fid) then mine[#mine + 1] = entry end
     end
     if #mine == 0 then return true end
     local at = find_live()
@@ -1382,7 +1457,7 @@ local function make_private(key, own_rel, model, source, name)
     local new_file = not vana.fs.exists(folder .. '\\' .. entry.rel)    -- not a spare: the game can't read it yet
     local palette, err = colors.prepare(folder, entry.rel, source, name)
     if not palette then return nil, err end
-    if new_file then fresh[entry.rel] = true end
+    if new_file then unseen()[entry.rel] = true end
     privates()[own_rel] = entry
     config:save()
     update_tables()
@@ -1435,7 +1510,7 @@ local function move_private(own_rel, entry)
     new.model = model
     local new_file = not vana.fs.exists(folder .. '\\' .. new.rel)
     if not colors.rename(folder, from, new.rel) then return false end
-    if new_file then fresh[new.rel] = true end
+    if new_file then unseen()[new.rel] = true end
     for _, store in ipairs({ config.data.colors, config.data.color_saves }) do
         local saved = store[COLORS_MOD]
         if saved and saved[from] ~= nil then saved[new.rel], saved[from] = saved[from], nil end
@@ -1446,12 +1521,13 @@ local function move_private(own_rel, entry)
     return true
 end
 
--- once you're in game: shared copies from before become private, copies whose number the game or the server took
--- move, and the tables are written and taught to the game
-local private_checked = false
+-- once you're in game, and again for each other race you're drawn as: shared copies from before become private, copies
+-- whose number the game or the server took move, and the tables are written and taught to the game
+local private_checked = {}    -- race -> checked this load
 function core.check_private()
-    if private_checked or not race_now() then return end
-    private_checked = true
+    local race = race_now()
+    if not race or private_checked[race] then return end
+    private_checked[race] = true
     local info = colors.info(core.root() .. '\\TransMog\\' .. COLORS_MOD)
     local moved = 0
     local mine = {}
@@ -1634,13 +1710,17 @@ local function restore_effects(rel)
     end
 end
 
--- A copy whose model an older TransMog moved out with an effect (a relic weapon's, kept in a folder of its own) is
--- copied again from the game's file; its colors and effects are put back on it after.
+-- A copy an older TransMog broke is copied again from the game's file; its colors and effects are put back on it after.
+-- Broken: its model moved out with an effect (a relic weapon's, kept in a folder of its own), or, on a race but Elvaan
+-- male, its sound and motion folder swapped for the glow's weapon's (a sword held like a katana).
 local function repair_copy(mod, rel)
     local path = mod.path .. '\\' .. rel
     local source = served(original_rel(rel))
     local original = source and read_file(source)
-    if not original or colors.mesh_count(read_file(path)) >= colors.mesh_count(original) then return end
+    if not original then return end
+    local copy = read_file(path)
+    if colors.mesh_count(copy) >= colors.mesh_count(original)
+        and colors.motion_folders(copy) == colors.motion_folders(original) then return end
     local f = io.open(path, 'wb')
     if not f then return end
     f:write(original)
@@ -1930,6 +2010,21 @@ function core.set_size(scale)
 end
 
 -- draws you as a race, or as your own with nil
+-- draws you as your own race, face and size again, when the Race page changed any: on unload, so nothing stays on you
+-- that TransMog no longer holds, and on load, for what an unload before this one left (a reload would otherwise take a
+-- race still drawn for your own)
+function core.restore_own()
+    if not (config.data.race or config.data.face or config.data.size) then return end
+    local address = find_self() and self_address()
+    if not address then return end
+    if config.data.race and config.data.own_race then
+        vana.memory.write_uint8(address + ENTITY_RACE, config.data.own_race)
+    end
+    if config.data.face and own_face then vana.memory.write_uint16(address + ENTITY_LOOK, own_face) end
+    if config.data.size then vana.memory.write_float(address + ENTITY_SIZE, own_size or -1) end
+    vana.memory.write_uint16(address + ENTITY_FLAGS, RELOAD)
+end
+
 function core.set_race(id)
     if id == config.data.own_race then id = nil end
     config.data.race = id
@@ -2033,6 +2128,9 @@ function core.start()
     end
     load_mounts()
     -- every load starts on each option's own: the pieces' own effects, and your own race
+    local me = find_self()
+    if me then own_character(me) end    -- this character's own race and face, for putting them back
+    core.restore_own()
     config.data.effects = {}
     config.data.race, config.data.face, config.data.size = nil, nil, nil
     core.scan()

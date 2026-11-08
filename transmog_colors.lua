@@ -153,12 +153,38 @@ function colors.apply(folder, palette, only)
 end
 
 -- Effects, such as Gyve Doublet's wings or a weapon's glow, are folders of their own inside a piece's file: children of
--- its outer folder, apart from its sound and motion folder (em_*) and, in some weapons, a folder holding the model under
+-- its outer folder, apart from its sound and motion folder and, in some weapons, a folder holding the model under
 -- the outer folder's own name. They can be moved from one piece's file to another's. A folder holding a model or a
 -- skeleton is the piece itself, whatever its name: the relic weapons and some shields keep theirs in one ("31em" in
 -- Mandau's file), and moving it out leaves the weapon invisible.
+-- The sound and motion folder is named for the race the file is for, as the outer folder is: "em_s" in "70em" (Elvaan
+-- male), "gl_s" in "70gl" (Galka). Its last letter is the kind of weapon: moving it would hold a sword like a katana.
 local FOLDER, END, INFO = 0x01, 0x00, 0x45
 local MODEL_KINDS = { [0x29] = true, [0x2A] = true }    -- skeleton, mesh
+
+local function is_motion(name, root)
+    return name:sub(3, 3) == '_' and (name:sub(1, 2) == root:sub(3, 4) or name:sub(1, 3) == 'em_')
+end
+
+-- the names of a file's sound and motion folders, as one string: a copy should keep the game's file's
+function colors.motion_folders(data)
+    local names, depth, offset, root = {}, 0, 0, nil
+    while data and offset + CHUNK_HEADER <= #data do
+        local value = u32(data, offset + 4)
+        local size = math.floor(value / 128) % 524288 * 16
+        if size < CHUNK_HEADER then break end
+        local kind, name = value % 128, data:sub(offset + 1, offset + 4)
+        if kind == FOLDER then
+            depth = depth + 1
+            if depth == 1 then root = name end
+            if depth == 2 and is_motion(name, root) then names[#names + 1] = name end
+        elseif kind == END then
+            depth = depth - 1
+        end
+        offset = offset + size
+    end
+    return table.concat(names, ',')
+end
 
 local function effect_blocks(data)
     local blocks, depth, offset, root, start = {}, 0, 0, nil, nil
@@ -171,7 +197,7 @@ local function effect_blocks(data)
         if kind == FOLDER then
             depth = depth + 1
             if depth == 1 then root = name end
-            if depth == 2 and name ~= root and name:sub(1, 3) ~= 'em_' then start, has_model = offset, false end
+            if depth == 2 and name ~= root and not is_motion(name, root) then start, has_model = offset, false end
         elseif kind == END then
             if depth == 2 and start then
                 if not has_model then blocks[#blocks + 1] = { start, offset + size } end

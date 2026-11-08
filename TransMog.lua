@@ -17,7 +17,7 @@ In game:
 
 addon.name    = 'TransMog';
 addon.author  = 'Benthere';
-addon.version = '2.0.2';
+addon.version = '2.0.3';
 addon.desc    = 'Turns DAT mods for mounts, gear and weapons on and off.';
 
 require('common');
@@ -946,6 +946,7 @@ end);
 
 ashita.events.register('unload', 'transmog_unload', function ()
     core.frame(false);    -- gives the camera back
+    vc.safe(core.restore_own);    -- and your own race, face and size
 end);
 
 ashita.events.register('d3d_present', 'transmog_present', function ()

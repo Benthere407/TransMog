@@ -157,4 +157,5 @@ your own mod, see **Adding a mod** in the [README](README.md).
 | Others see you blink | No blink is on your screen only: type the game's own `/lockstyle on` (again after a job change) |
 | New colors don't show on a piece | The first recolor of a normal piece needs one zone |
 | A new piece shows without its effect | Zone: it gets the effect then |
+| Recolored pieces or weapons draw nothing (only your head shows) | Fixed in 2.0.3. On an older version, close the game and start it again |
 | A mount's new look doesn't show | Zone: calling the mount again isn't enough |
