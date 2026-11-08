@@ -8,7 +8,7 @@ Open the window with `/tm`. The menu on the left switches pages, and `/tm <page>
 
 ## 1. Put on a look (Lockstyle)
 
-![Lockstyle page with the White and gold robe picked, and the character beside the window](docs/framed-robe.png)
+![Lockstyle page with the White and gold robe and Nandaka picked, and the character beside the window](docs/framed-robe.png)
 
 1. Open **Lockstyle** and turn on **TransMog ON**.
 2. Click a slot in **Your Look** (Head, Body, Legs, ...). The list below it, **Choose**, shows every piece for that
@@ -20,6 +20,10 @@ Open the window with `/tm`. The menu on the left switches pages, and `/tm <page>
 3. Click a piece. It goes on your character straight away.
 4. A slot left on **Worn gear** shows what you're wearing. With TransMog ON it stays as you looked when you turned it on,
    so a job change that swaps your gear doesn't change your look. Turn TransMog off and on to lock to new gear.
+
+Here the Main list is filtered to great swords. Nandaka is marked **glow**, as its blade glows:
+
+![Choose Main filtered to Great sword: each row shows Great sword, 2H, and Nandaka shows glow](docs/lock-weapons.png)
 
 Handy extras on this page:
 
@@ -79,6 +83,8 @@ To keep the colors, type a name and choose **Save**. Saved colors stay through r
 
 Changes you haven't saved yet count too, and they're still there when you go back to the body.
 
+![Colors page on Hands, matching colors from the body: the body's colors on the left of each row](docs/colors-match.png)
+
 **Copying one color:**
 - Right-click any color to copy it, or choose **Copy** in its panel.
 - Then choose **Paste** in another color's panel.
@@ -94,9 +100,15 @@ second saved scheme, green with white trim:
 The first time you recolor a normal piece of gear, TransMog makes your own copy of it (one zone may be needed before
 it shows). Your copy uses a model number no item has, so nobody else wearing that piece changes on your screen.
 
+Any gear can be recolored, not only mods. Two normal sets, each piece recolored to match:
+
+![The Valor set recolored crimson with gold trim](docs/recolor-valor.png)
+
+![The Scorpion set recolored deep blue with silver trim](docs/recolor-scorpion.png)
+
 ## 5. Wings and glows (Effects)
 
-![Effects page with Wings, Main glow, Sub glow and Ranged glow](docs/page-effects.png)
+![Effects page with Gyve Doublet's wings on the robe, and Its own for each glow](docs/page-effects.png)
 
 Pick **Wings** to give your body piece the wings of Gyve Doublet or Tartarus Platemail, and a **glow** for each
 weapon slot from about 20 glowing weapons. **Its own** keeps the piece's own effect, and **None** removes it. Every
@@ -146,9 +158,25 @@ The **Mods** list turns each swap on or off, and **Delete** removes one (click t
 so turning one on turns off the others for that mount. After you log out and back in, the game's mount menu says
 "Looks like: &lt;look&gt;" in that mount's help line.
 
-![Riding the Raptor as the Deluxe Unicorn](docs/mount-unicorn.png)
+Three swaps from the Mods list above, each from two sides.
+
+The Raptor as the Deluxe Unicorn:
+
+![Riding the Raptor as the Deluxe Unicorn, from the side](docs/mount-unicorn.png)
+
+![The Deluxe Unicorn from the front](docs/mount-unicorn-front.png)
+
+The Bomb as the Red Rooster:
 
 ![Riding the Bomb as the Red Rooster](docs/mount-rooster.png)
+
+![The Red Rooster from the side](docs/mount-rooster-side.png)
+
+The Tiger as the Firebird:
+
+![Riding the Tiger as the Firebird, from the front](docs/mount-firebird.png)
+
+![The Firebird with its wings spread](docs/mount-firebird-wings.png)
 
 ## 8. Gear, Weapons and Other mods
 
