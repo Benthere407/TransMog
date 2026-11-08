@@ -788,9 +788,6 @@ function core.current_job()
 end
 
 -- wears the set assigned to your job when your job changes, and when you log in
-local LOCKSTYLE_AFTER = 4    -- seconds after a job change before /lockstyle on goes
-local lockstyle_at
-
 local function check_job()
     local now = vana.time.clock()
     if now < next_job_check then return end
@@ -798,8 +795,6 @@ local function check_job()
     local job = core.current_job()
     if not job or job == last_job then return end
     last_job = job
-    -- a job change (and logging in) turns the game's /lockstyle off: No blink puts it back on, once you've settled
-    if core.blink_setting('blink.disable') then lockstyle_at = now + LOCKSTYLE_AFTER end
     local name = config.data.job_sets[job]
     if name then core.wear_set(name) end
 end
@@ -807,10 +802,6 @@ end
 function core.tick()
     check_job()
     local now = vana.time.clock()
-    if lockstyle_at and now >= lockstyle_at then
-        lockstyle_at = nil
-        vana.chat.run('/lockstyle on')
-    end
     if now >= next_effect_check then
         next_effect_check = now + EFFECT_CHECK_TIME
         local entity = find_self()

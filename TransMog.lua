@@ -203,17 +203,13 @@ PAGES.lock = function ()
     local v = vc.switch_row('lock_on', 'TransMog ON', cfg.lock);
     if v ~= nil then core.set_lock(v); end
     local blink = vc.switch_row('no_blink', 'No blink on gear change', core.blink_setting('blink.disable'));
-    if blink ~= nil then
-        core.set_blink_setting('blink.disable', blink);
-        -- the blink others see comes from the server's gear change, so only the game's own lockstyle stops it there
-        AshitaCore:GetChatManager():QueueCommand(-1, blink and '/lockstyle on' or '/lockstyle off');
-    end
+    if blink ~= nil then core.set_blink_setting('blink.disable', blink); end    -- on your screen only: nothing is sent
     if core.blink_setting('blink.disable') then
-        vc.note("Also turns on the game's /lockstyle, so others see the look you had when it locked. That command goes to the server; a job change turns it off.");
+        vc.note("Only on your screen. Others still see you blink when your gear changes, unless you type the game's own /lockstyle on.");
         local weapons = vc.switch_row('no_blink_weapons', 'Weapons too', core.blink_setting('blink.weapons'));
         if weapons ~= nil then core.set_blink_setting('blink.weapons', weapons); end
         if core.blink_setting('blink.weapons') then
-            vc.note('Weapons too is only on your screen. Changing to a different weapon type (staff to club) still shows to others, and they see you blink.');
+            vc.note('Weapons too is only on your screen as well.');
         end
     end
     local frame = vc.switch_row('frame_me', 'Show me beside this window', cfg.frame_me);

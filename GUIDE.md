@@ -21,8 +21,8 @@ Handy extras on this page:
 
 - **Show me beside this window** turns the camera to face you, with you to the right of the window. **Camera distance**,
   **Push me right** and **Turn around me** (Spin, Front, Back) set up the view.
-- **No blink on gear change** stops you vanishing for a moment when your gear changes. It also sends the game's own
-  `/lockstyle on`, so other players don't see you blink either. **Weapons too** covers weapon swaps, on your screen.
+- **No blink on gear change** stops you vanishing for a moment when your gear changes, on your screen. **Weapons too**
+  covers weapon swaps. To stop other players seeing you blink, type the game's own `/lockstyle on` yourself.
 - **Use worn** fills Your Look with what you have on. **Clear all** empties it.
 - After picking an armor piece, the list shows **Match this slot** and **Match full set**, to fill in the rest of
   the same set. Tick a slot's box in Your Look to match by that piece.
@@ -136,6 +136,6 @@ your own mod, see **Adding a mod** in the [README](README.md).
 | A slot of a look shows your own gear | That piece is made for another race, or doesn't fit the race you're drawn as |
 | The Sub slot's look doesn't show | The main hand shows a two-handed weapon: like real gear, the sub hand stays empty with one |
 | You blink when gear changes | Turn on **No blink on gear change**; for weapons, also **Weapons too** |
-| Others see you blink | No blink sends `/lockstyle on`; it comes back on by itself a few seconds after a job change |
+| Others see you blink | No blink is on your screen only: type the game's own `/lockstyle on` (again after a job change) |
 | New colors don't show on a piece | The first recolor of a normal piece needs one zone |
 | A mount's new look doesn't show | Zone: calling the mount again isn't enough |

@@ -61,14 +61,19 @@ The commands work in macros, so a macro can wear a set or switch your race.
 
 ## What other players see
 
-Everything TransMog draws is on your screen only, and almost nothing goes to the server. The one exception is the
-game's own `/lockstyle` command, which **No blink on gear change** sends:
+Only your real gear, race and mounts. Everything TransMog draws is on your screen only, and it sends nothing to the
+server: no packets, no commands, no chat. It only changes what your own game draws, and the appearance data the server
+sends you about your own character.
 
-- when you turn the switch on or off;
-- a few seconds after a job change or logging in, while it's on, because those turn the game's lockstyle off.
+**No blink on gear change** is on your screen only too. To keep others from seeing you blink when your gear changes,
+type the game's own `/lockstyle on` yourself (a job change turns it off).
 
-That is the same command you could type yourself. It keeps others from seeing you blink when your gear changes, and
-they see the look you had when it locked. Turn No blink off if you want TransMog to send nothing.
+## CatsEyeXI addon policy
+
+TransMog is meant to be **T0 Cosmetic** under the [CatsEyeXI addon policy](https://catseyexi.com/addon-policy): a pure
+visual change, with no automation, no information advantage and no server interaction. It works like the approved
+`sexchange`, `singlerace` and `xipivot`, and loads its mods through XIPivot. It isn't on the approved list by name;
+staff decide a tier, so ask in a GM ticket if you're unsure.
 
 ## Good to know
 
