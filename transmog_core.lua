@@ -1701,14 +1701,35 @@ function core.effect_choice(key)
     return config.data.effects[key]
 end
 
+-- whether a weapon with this main-hand model can be held in the sub hand: then the game has a sub-hand file for it
+local sub_models
+local function sub_capable(model)
+    if not sub_models then
+        sub_models = {}
+        for _, row in pairs(vana.gamedata.all('items')) do
+            if (row.skill or 0) > 0 and (row.model_id or 0) > 0 then
+                for _, name in ipairs(row.slot_names or {}) do
+                    if name == 'sub' then sub_models[row.model_id] = true end
+                end
+            end
+        end
+    end
+    return sub_models[model] == true
+end
+
+-- The file a slot's effect comes from. A glow is started by parts named for the hand it's in (!w00 for the main hand,
+-- !w10 for the sub), so a sub-hand glow comes from the glow weapon's sub-hand file when it has one; one taken from
+-- a main-hand file would show at the main-hand weapon. Returns the path, and whether it's a main-hand file going to
+-- the sub hand (to be turned for it).
 local function effect_source(key, choice)
     local list = core.effect_choices()
     for _, entry in ipairs(key == 'body' and list.wings or list.glows) do
         if entry.name == choice then
             local model = entry.model or (vana.gamedata.items[entry.item] or {}).model_id
-            local file = model and armor_file(key == 'body' and 'body' or 'main', model)
+            local row = key == 'body' and 'body' or (key == 'sub' and model and sub_capable(model) and 'sub' or 'main')
+            local file = model and armor_file(row, model)
             local rel = file and file_path(file)
-            return rel and served(rel)
+            return rel and served(rel), key == 'sub' and row == 'main'
         end
     end
 end
@@ -1768,12 +1789,13 @@ function core.apply_effect(key, redraw)
         local source = core.is_recolored_copy(target) and served(original_rel(target.rel))
         effects = source and colors.effects_of(colors.read(source) or '') or ''
     elseif choice ~= 'off' then
-        local source = effect_source(key, choice)
+        local source, turn = effect_source(key, choice)
         if not source then
             say(('Could not find the file for %s.'):format(choice))
             return false
         end
         effects = colors.effects_of(colors.read(source) or '')
+        if turn then effects = colors.for_sub_hand(effects) end
     end
     local ok, err = colors.set_effects(target.mod.path .. '\\' .. target.rel, effects)
     if not ok then

@@ -98,6 +98,9 @@ Pick **Wings** to give your body piece the wings of Gyve Doublet or Tartarus Pla
 weapon slot from about 20 glowing weapons. **Its own** keeps the piece's own effect, and **None** removes it. Every
 load starts on Its own. From a macro: `/tm effect main Coruscanti`, `/tm effect body Gyve Doublet`, or `own` / `off`.
 
+A glow on the sub hand shows on your sub weapon. Some glows aren't on the blade: Irradiance Blade's is an aura on
+the ground at your feet, so on both hands the two overlap and look like one.
+
 An effect stays with the slot, so after a gear change it moves to the new piece. A piece getting an effect for the first
 time usually shows it at once. After many new pieces between zones, the next ones show plain until you zone, then
 with their effect.

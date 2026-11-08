@@ -235,6 +235,71 @@ function colors.effects_of(data)
     return table.concat(parts)
 end
 
+-- Turns effect folders taken from a main-hand weapon's file for the sub hand, as the game's own sub-hand files have
+-- them: the parts the game starts a glow by are named for the hand (!w00, !w01, !w02 in the main hand; !w10, !w11,
+-- !w12 in the sub); the other generators and schedulers get names of their own, so the same glow can be in both hands
+-- at once; and each generator's first byte loses the main hand's bit (0x79 in the main hand, 0x69 in the sub).
+-- Names are 4 bytes; a reference to one is the name itself, 4-byte aligned in the part's data.
+local GENERATOR, SCHEDULER = 0x05, 0x07
+local MAIN_HAND_BIT = 0x10
+
+function colors.for_sub_hand(effects)
+    if not effects or effects == '' then return effects end
+    local list, taken = {}, {}
+    local offset = 0
+    while offset + CHUNK_HEADER <= #effects do
+        local value = u32(effects, offset + 4)
+        local size = math.floor(value / 128) % 524288 * 16
+        if size < CHUNK_HEADER then break end
+        local kind, name = value % 128, effects:sub(offset + 1, offset + 4)
+        taken[name] = true
+        if kind == GENERATOR or kind == SCHEDULER then list[#list + 1] = { at = offset, size = size, kind = kind, name = name } end
+        offset = offset + size
+    end
+    -- the new names
+    local rename = {}
+    local SPARE_LAST = '123456789abcdefghijklmnopqrstuvwxyz'
+    for _, part in ipairs(list) do
+        local name, new = part.name, nil
+        if name:sub(1, 3) == '!w0' then
+            new = '!w1' .. name:sub(4, 4)
+        elseif name ~= 'init' then
+            local stem = 'l' .. name:sub(1, 2)
+            for i = 1, #SPARE_LAST do
+                local try = stem .. SPARE_LAST:sub(i, i)
+                if not taken[try] then new = try break end
+            end
+        end
+        if new and new ~= name then
+            rename[name] = new
+            taken[new] = true
+        end
+    end
+    -- the parts, renamed, their references to each other renamed, generators for the sub hand
+    local out, from = {}, 0
+    for _, part in ipairs(list) do
+        out[#out + 1] = effects:sub(from + 1, part.at)
+        local data = effects:sub(part.at + 1, part.at + part.size)
+        local pieces = { rename[part.name] or part.name, data:sub(5, CHUNK_HEADER) }
+        for at = CHUNK_HEADER, part.size - 4, 4 do
+            local word = data:sub(at + 1, at + 4)
+            pieces[#pieces + 1] = rename[word] or word
+        end
+        pieces[#pieces + 1] = data:sub(part.size - (part.size - CHUNK_HEADER) % 4 + 1)
+        local turned = table.concat(pieces)
+        if part.kind == GENERATOR and #turned > CHUNK_HEADER then
+            local flags = turned:byte(CHUNK_HEADER + 1)
+            if math.floor(flags / MAIN_HAND_BIT) % 2 == 1 then
+                turned = turned:sub(1, CHUNK_HEADER) .. string.char(flags - MAIN_HAND_BIT) .. turned:sub(CHUNK_HEADER + 2)
+            end
+        end
+        out[#out + 1] = turned
+        from = part.at + part.size
+    end
+    out[#out + 1] = effects:sub(from + 1)
+    return table.concat(out)
+end
+
 -- takes a file's own effect folders out and puts these in their place, before the outer folder's info, or its end
 function colors.set_effects(path, effects)
     local data = read(path)
