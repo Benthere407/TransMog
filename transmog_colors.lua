@@ -15,6 +15,8 @@ local TEXTURE = 0x20
 local HEADER = 57           -- an uncompressed texture's own header: flag, name and a 40 byte bitmap header
 local NAME_AT = 1           -- where the texture's 16 letter name sits in that header
 local SIZE_AT = 21          -- where its width and height sit
+local PLAIN = 0x91          -- the flag of a texture written here (plain pixels); a built one is compressed (0xA1)
+local MAX_CHUNK = 524287 * 16    -- a chunk's size is 19 bits of 16 byte units: a bigger one wraps and the game loses it
 -- a palette's keys in order. Built gear uses the first three; a normal piece split by colors.prepare uses all.
 colors.NAMES = { 'main', 'dark', 'trim', 'color4', 'color5', 'color6', 'color7', 'color8' }
 colors.LABELS = { main = 'Main', dark = 'Shading', trim = 'Trim' }
@@ -66,10 +68,17 @@ local LIFT = 1.8            -- a group made this many times brighter is painted 
 
 -- an uncompressed texture chunk painted from a map. Each pixel moves as far as its group's color moved from the
 -- built one, in step with its brightness, so the built colors give back the texture as it was and its detail stays.
+-- Plain pixels take 4 bytes each, so a big texture (a 4x painted coat, 1024 x 2048) would not fit a chunk: it is
+-- painted at full size, then halved until it does.
 local function paint(entry, map, palette, built, template)
     local width, height = entry.width, entry.height
     local count = width * height
-    local payload = HEADER + count * 4
+    local step = 1
+    while math.ceil((CHUNK_HEADER + HEADER + (width / step) * (height / step) * 4) / 16) * 16 > MAX_CHUNK do
+        step = step * 2
+    end
+    local out_w, out_h = width / step, height / step
+    local payload = HEADER + out_w * out_h * 4
     local size = math.ceil((CHUNK_HEADER + payload) / 16) * 16
     local out = ffi.new('uint8_t[?]', size)
     local name = entry.texture:sub(9, 12)
@@ -77,9 +86,10 @@ local function paint(entry, map, palette, built, template)
     ffi.copy(out + 4, le32(TEXTURE + size / 16 * 128), 4)
     ffi.copy(out + CHUNK_HEADER, template, HEADER)
     ffi.copy(out + CHUNK_HEADER + NAME_AT, entry.texture, 16)
-    ffi.copy(out + CHUNK_HEADER + SIZE_AT, le32(width) .. le32(height), 8)
+    ffi.copy(out + CHUNK_HEADER + SIZE_AT, le32(out_w) .. le32(out_h), 8)
     local source = ffi.cast('const uint8_t *', map)
-    local pixel = out + CHUNK_HEADER + HEADER
+    local full = step == 1 and nil or ffi.new('uint8_t[?]', count * 4)
+    local pixel = full or (out + CHUNK_HEADER + HEADER)
     -- a group made much brighter, black cloth made white, would wash out its highlights if moved: it is painted in its
     -- new color instead, with its light and shade softened by how much brighter it got
     local moves, lifts = {}, {}
@@ -111,7 +121,35 @@ local function paint(entry, map, palette, built, template)
         end
         p[3] = source[at + 2]
     end
+    if full then    -- each pixel the average of the step x step square it covers
+        local dst = out + CHUNK_HEADER + HEADER
+        local area = step * step
+        for y = 0, out_h - 1 do
+            for x = 0, out_w - 1 do
+                local b, g, r, a = 0, 0, 0, 0
+                for dy = 0, step - 1 do
+                    local row = ((y * step + dy) * width + x * step) * 4
+                    for dx = 0, step - 1 do
+                        local s = full + row + dx * 4
+                        b, g, r, a = b + s[0], g + s[1], r + s[2], a + s[3]
+                    end
+                end
+                local d = dst + (y * out_w + x) * 4
+                d[0], d[1], d[2], d[3] = b / area, g / area, r / area, a / area
+            end
+        end
+    end
     return ffi.string(out, size)
+end
+
+-- whether a palette is the one a file was built in, so painting would give back what is there
+local function same_colors(palette, built)
+    for _, key in ipairs(colors.NAMES) do
+        local a, b = palette[key], built[key]
+        if (a == nil) ~= (b == nil) then return false end
+        if a and (a[1] ~= b[1] or a[2] ~= b[2] or a[3] ~= b[3]) then return false end
+    end
+    return true
 end
 
 -- writes the textures of one of a mod's files, or all of them without rel, in the given colors
@@ -135,6 +173,9 @@ function colors.apply(folder, palette, only)
             local size = math.floor(value / 128) % 524288 * 16
             if size < CHUNK_HEADER then break end
             local entry = value % 128 == TEXTURE and wanted[data:sub(offset + CHUNK_HEADER + NAME_AT + 1, offset + CHUNK_HEADER + NAME_AT + 16)]
+            -- a texture still as built, wanted in the colors it was built in, is left alone: painting would only swap a
+            -- sharp compressed one for plain pixels (and a big one for a halved one)
+            if entry and data:byte(offset + CHUNK_HEADER + 1) ~= PLAIN and same_colors(palette, built) then entry = nil end
             if entry then
                 local map = read(folder .. '\\' .. entry.map:gsub('/', '\\'))
                 if not map or #map ~= entry.width * entry.height * 6 then return nil, 'Missing map for ' .. entry.texture end

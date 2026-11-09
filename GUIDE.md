@@ -10,7 +10,8 @@ Open the window with `/tm`. The menu on the left switches pages, and `/tm <page>
 
 ![Lockstyle page with the White and gold robe and Nandaka picked, and the character beside the window](docs/framed-robe.png)
 
-1. Open **Lockstyle** and turn on **TransMog ON**.
+1. Open **Lockstyle** and turn on **TransMog ON**. It starts off each time TransMog loads, as does **No blink on gear
+   change**: turn them on each session (a set chosen for your job turns TransMog ON by itself).
 2. Click a slot in **Your Look** (Head, Body, Legs, ...). The list below it, **Choose**, shows every piece for that
    slot your race can wear. Type in the search box to narrow it down.
    For Main, Sub and Range, each weapon shows its type and whether it takes one hand or two ("Sword, 1H",

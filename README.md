@@ -83,8 +83,9 @@ staff decide a tier, so ask in a GM ticket if you're unsure.
 - **Mount names in the mount menu** pick up "Looks like: &lt;look&gt;" after you log out and back in.
 - **Each character has its own look.** Looks are kept per character in `characters\<name>.json`, so two games open at
   once don't overwrite each other.
-- **Every load starts on your own race and effects.** Race, face, hair, size and effects reset when TransMog loads.
-  Your looks, sets and colors are kept.
+- **Every load starts on your own race and effects, with TransMog off.** Race, face, hair, size and effects reset when
+  TransMog loads, and **TransMog ON** and **No blink on gear change** (with **Weapons too**) start off: turn them on
+  each session. A set chosen for your job still goes on. Your looks, sets and colors are kept.
 - **Gear made for one race** (like the White and gold robe, made for Elvaan male) only shows on that race. On another
   race the slot shows your gear instead, so nothing goes invisible.
 - **A two-handed weapon empties the sub hand.** With a great sword, polearm, staff, scythe, great axe or great katana

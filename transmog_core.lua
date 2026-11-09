@@ -718,7 +718,25 @@ local function sub_from_real(real)
     if real and real >= OFF_HAND then return SUB_EMPTY end
 end
 
-local function wanted(i, slot)
+-- whether a slot's model is one of our private copies' numbers on the race drawn
+local function is_private(key, model)
+    local entity = find_self()
+    local race = entity and entity.race
+    if race == 6 then race = 5 end    -- Tarutaru female shares Tarutaru male's copies (see race_now)
+    for _, entry in pairs(config.data.private or {}) do
+        if entry.key == key and entry.pmodel == model and entry.race == race then return true end
+    end
+    return false
+end
+
+local function wanted(i, slot, current)
+    -- TransMog off is the game's own look: a slot still showing one of our copies goes back to your gear as the
+    -- server gave it. Nothing else is touched (what we remember of your gear can be from before a zone).
+    if not config.data.lock then
+        local real = config.data.real[slot.key]
+        if current and real and is_private(slot.key, current % 0x1000) then return real end
+        return nil
+    end
     local forced = slot.key == 'sub' and sub_by_main()
     if forced then return forced end
     local model = config.data.lock and picked_model(slot)
@@ -765,8 +783,8 @@ local function sync()
     end
     lock_now()    -- TransMog was on before there was a locked look (from before this, or no gear seen yet)
     for i, slot in ipairs(core.SLOTS) do
-        local want = wanted(i, slot)
         local at = address + ENTITY_LOOK + i * 2
+        local want = wanted(i, slot, vana.memory.read_uint16(at))
         if want and vana.memory.read_uint16(at) ~= want then
             vana.memory.write_uint16(at, want)
             changed = true
@@ -792,6 +810,7 @@ local function rewrite(data, offset)
     end
     put(offset - 2, config.data.face)
     put(offset - 1, config.data.race)
+    if not config.data.lock then return data end    -- TransMog off: the server's own look
     for i, slot in ipairs(core.SLOTS) do
         -- the same look sync() draws, so a gear change from the server never needs a redraw after it (a blink)
         local model = slot.key == 'sub' and sub_by_main() or config.data.lock and picked_model(slot)
@@ -856,6 +875,7 @@ local function check_job()
 end
 
 function core.tick()
+    core.scan_step()    -- the search for the game's file tables, while one is under way
     check_job()
     local now = vana.time.clock()
     if now >= next_effect_check then
@@ -1364,6 +1384,7 @@ local SPARES = 40    -- enough for several race or gear changes between zones: a
 
 -- the game's file tables in memory, once found: { vt, ft }; false when a search found nothing (tried again at a zone)
 local live
+local scan    -- the search for them under way: { block, sets, vt, ft }
 
 -- private paths whose file was made since the last zone
 local function unseen()
@@ -1376,6 +1397,7 @@ private_model = function (key, model)
     for _, entry in pairs(privates()) do
         if entry.key == key and entry.model == model and entry.race == race then
             if unseen()[entry.rel] or has_file(entry.fid) then return model end    -- not readable yet, or not ours now
+            if scan or live == false then return model end    -- the game's tables not found yet: the piece itself
             return entry.pmodel
         end
     end
@@ -1506,50 +1528,91 @@ local function verified(which, at)
     return same >= checked * 0.98
 end
 
--- the start of the game's copy of one table: a 64 KB block where the probes match and the table checks out. The
--- game's two tables needn't be near each other (one session has them 33 MB apart), so each is found on its own.
-local function find_table(which, last, probes)
-    local function fits(at)
-        for _, probe in ipairs(probes) do
-            if vana.memory.find(at + probe.at, TABLES_PROBE, probe.hex) == 0 then return false end
-        end
-        return verified(which, at)
-    end
-    if last and fits(last) then return last end    -- where it was last time: the game keeps it there until it restarts
-    for block = 0x10000, 0x7FFF0000, 0x10000 do
-        if fits(block) then return block end
-    end
-end
+-- Finding the game's two tables: each starts a 64 KB block where its probes match and the table checks out. They needn't
+-- be near each other (one session has them 33 MB apart). Where they were last time is tried first (the game keeps them
+-- there until it restarts); otherwise all of memory is searched, a share of it each frame, so the game never freezes
+-- for it. Two sets of probes: a copy of ours from before (since moved or deleted) can still be written in where one looks.
+local SCAN_BLOCKS_PER_FRAME = 128    -- about 30 ms a frame; all of memory in some 250 frames
+local SCAN_FIRST, SCAN_LAST = 0x10000, 0x7FFF0000
+local on_tables_found     -- run once both are found by a search (set further down)
 
-local function find_live()
-    if live ~= nil then return live or nil end
-    live = false
+local function probe_sets()
     local base = tables()
-    if #base.vt == 0 then return nil end
-    -- two sets of stretches: a copy from before (since moved or deleted) can still be written in where the first look
     local size = #base.vt
-    local last = config.data.tables_at or {}
-    local vt, ft
+    local sets = { vt = {}, ft = {} }
     for _, from in ipairs({ { 40960, math.floor(size / 2) }, { math.floor(size / 4), math.floor(size * 3 / 4) } }) do
         local v_at, v_hex = probe_at(base.vt, from[1], 1)
         local v_at2, v_hex2 = probe_at(base.vt, from[2], 1)
         local f_at, f_hex = probe_at(base.ft, from[1] * 2, 2)
-        if not vt and v_at and v_at2 then
-            vt = find_table('vt', last.vt, { { at = v_at, hex = v_hex }, { at = v_at2, hex = v_hex2 } })
+        if v_at and v_at2 then sets.vt[#sets.vt + 1] = { { at = v_at, hex = v_hex }, { at = v_at2, hex = v_hex2 } } end
+        if f_at then sets.ft[#sets.ft + 1] = { { at = f_at, hex = f_hex } } end
+    end
+    return sets
+end
+
+-- whether the table at this address checks out by one of the probe sets (pass: only that one)
+local function fits(which, at, sets, pass)
+    for i, set in ipairs(sets[which]) do
+        if pass and i ~= pass then goto next_set end
+        local all = true
+        for _, probe in ipairs(set) do
+            if vana.memory.find(at + probe.at, TABLES_PROBE, probe.hex) == 0 then all = false break end
         end
-        if not ft and f_at then
-            ft = find_table('ft', last.ft, { { at = f_at, hex = f_hex } })
-        end
-        if vt and ft then
-            live = { vt = vt, ft = ft }
-            if last.vt ~= vt or last.ft ~= ft then
-                config.data.tables_at = { vt = vt, ft = ft }
-                config:save()
-            end
-            return live
+        if all and verified(which, at) then return true end
+        ::next_set::
+    end
+    return false
+end
+
+local function found_tables(vt, ft)
+    live = { vt = vt, ft = ft }
+    local last = config.data.tables_at or {}
+    if last.vt ~= vt or last.ft ~= ft then
+        config.data.tables_at = { vt = vt, ft = ft }
+        config:save()
+    end
+end
+
+-- the game's tables, or nil while they aren't found yet (a search is started, and carried on by core.scan_step)
+local function find_live()
+    if live ~= nil then return live or nil end
+    if scan then return nil end
+    if #tables().vt == 0 then return nil end
+    local sets = probe_sets()
+    local last = config.data.tables_at or {}
+    if last.vt and last.ft and fits('vt', last.vt, sets) and fits('ft', last.ft, sets) then
+        found_tables(last.vt, last.ft)
+        return live
+    end
+    scan = { block = SCAN_FIRST, sets = sets, pass = 1 }
+    return nil
+end
+
+-- a share of the search for the game's tables, each frame while one is under way: one probe set a pass through memory,
+-- the next set only if the first found nothing
+function core.scan_step()
+    if not scan then return end
+    local stop = math.min(scan.block + (SCAN_BLOCKS_PER_FRAME - 1) * 0x10000, SCAN_LAST)
+    for block = scan.block, stop, 0x10000 do
+        if not scan.vt and fits('vt', block, scan.sets, scan.pass) then scan.vt = block end
+        if not scan.ft and fits('ft', block, scan.sets, scan.pass) then scan.ft = block end
+        if scan.vt and scan.ft then
+            found_tables(scan.vt, scan.ft)
+            scan = nil
+            if on_tables_found then on_tables_found() end
+            return
         end
     end
-    return nil
+    scan.block = stop + 0x10000
+    if scan.block > SCAN_LAST then
+        local more = scan.pass < math.max(#scan.sets.vt, #scan.sets.ft)
+        if more then
+            scan.pass, scan.block = scan.pass + 1, SCAN_FIRST
+        else
+            scan = nil
+            live = false    -- not found: looked for again at the next zone
+        end
+    end
 end
 
 -- the game reads its tables once, at its start, before TransMog's folders are in the DAT order, so it always starts
@@ -1665,6 +1728,7 @@ end
 -- once you're in game, and again for each other race you're drawn as: shared copies from before become private, copies
 -- whose number the game or the server took move, and the tables are written and taught to the game
 local private_checked = {}    -- race -> checked this load
+on_tables_found = function () private_checked = {} end    -- the check runs again, and writes the copies in
 function core.check_private()
     local race = race_now()
     if not race or private_checked[race] then return end
@@ -2194,6 +2258,24 @@ function core.restore_own()
     vana.memory.write_uint16(address + ENTITY_FLAGS, RELOAD)
 end
 
+-- puts your gear as the server gave it back on you, on unload: with TransMog ON every slot of the look, and with it off
+-- any slot still showing one of our copies. Without this the look (or a copy the game can't find) stays till a zone.
+function core.restore_gear()
+    local address = find_self() and self_address()
+    if not address then return end
+    local changed = false
+    for i, slot in ipairs(core.SLOTS) do
+        local real = config.data.real[slot.key]
+        local at = address + ENTITY_LOOK + i * 2
+        local current = vana.memory.read_uint16(at)
+        if real and current ~= real and (config.data.lock or is_private(slot.key, current % 0x1000)) then
+            vana.memory.write_uint16(at, real)
+            changed = true
+        end
+    end
+    if changed then vana.memory.write_uint16(address + ENTITY_FLAGS, RELOAD) end
+end
+
 function core.set_race(id)
     if id == config.data.own_race then id = nil end
     config.data.race = id
@@ -2216,7 +2298,10 @@ function core.set_lock(on)
         end
         config.data.locked = nil    -- taken below, from the gear you wear now
     end
-    if not on then config.data.locked = nil end
+    if not on then
+        config.data.locked = nil
+        if config.data.lock then core.restore_gear() end    -- off: your own gear back in every slot of the look
+    end
     config.data.lock = on
     lock_now()
     config:save()
@@ -2302,6 +2387,11 @@ function core.start()
     core.restore_own()
     config.data.effects = {}
     config.data.race, config.data.face, config.data.size = nil, nil, nil
+    -- TransMog ON and No blink (with Weapons too) start off too: each player turns them on. A job set put on for your
+    -- job still turns TransMog ON, as it was chosen to.
+    if config.data.lock then core.set_lock(false) end
+    if core.blink_setting('blink.disable') then core.set_blink_setting('blink.disable', false) end
+    if core.blink_setting('blink.weapons') then core.set_blink_setting('blink.weapons', false) end
     core.scan()
     for _, mod in ipairs(core.mods) do
         if mod.category == 'mount' and core.is_enabled(mod) then turn_off_rivals(mod) end
